@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { fetchListings } from "./lib/supabase.js";
+import { fetchListings, signIn, signOut, getSession, adminUpdateListing, adminFetchSubmissions, adminUpdateSubmission } from "./lib/supabase.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
 const Y   = "#F0D800";
@@ -4643,6 +4643,15 @@ export default function App() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
+
+  // Restore session on mount
+  useEffect(() => {
+    getSession().then(session => {
+      if (session?.user) {
+        setUser({ name: session.user.email.split("@")[0], email: session.user.email, role: session.user.app_metadata?.role || "admin" });
+      }
+    });
+  }, []);
   useEffect(() => { setPage(1); }, [search, activeCat, activeCity, activeSt, perPage, activeLetter]);
   useEffect(() => {
     const fn = e => { if (e.key === "Escape") setModal(null); };
@@ -5349,14 +5358,24 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
 // ACCOUNT PANEL
 // ══════════════════════════════════════════════════════════════════════════════
 function AccountPanel({ bp, user, setUser, goDir }) {
-  const [mode, setMode] = useState("signin");
-  const [f, setF] = useState({ name: "", email: "", password: "" });
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const [f, setF] = useState({ email: "", password: "" });
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const px = bp.isMobile ? "16px" : "40px";
 
-  const auth = () => {
-    if (!f.email) return;
-    setUser({ name: f.name || f.email.split("@")[0], email: f.email, role: f.email.includes("admin") ? "admin" : "user" });
+  const doSignIn = async () => {
+    if (!f.email || !f.password) return;
+    setBusy(true); setErr("");
+    const { user: u, error } = await signIn(f.email, f.password);
+    if (error) { setErr(error.message); setBusy(false); return; }
+    setUser({ name: u.email.split("@")[0], email: u.email, role: u.app_metadata?.role || "admin" });
+    goDir();
+    setBusy(false);
+  };
+
+  const doSignOut = async () => {
+    await signOut();
+    setUser(null);
     goDir();
   };
 
@@ -5365,24 +5384,20 @@ function AccountPanel({ bp, user, setUser, goDir }) {
       <div style={{ fontFamily: "'Georgia',serif", fontSize: "28px", fontWeight: 900, color: INK, marginBottom: "6px" }}>Welcome back,</div>
       <div style={{ fontFamily: "'Georgia',serif", fontSize: "22px", color: MID, marginBottom: "8px" }}>{user.name}</div>
       <div style={{ fontSize: "11px", letterSpacing: "2px", color: MID, marginBottom: "28px" }}>{user.email}</div>
-      <button onClick={() => { setUser(null); goDir(); }} style={{ border: `2px solid ${INK}`, background: "transparent", color: INK, padding: "12px 28px", fontFamily: "inherit", fontSize: "11px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>SIGN OUT</button>
+      <button onClick={doSignOut} style={{ border: `2px solid ${INK}`, background: "transparent", color: INK, padding: "12px 28px", fontFamily: "inherit", fontSize: "11px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>SIGN OUT</button>
     </div>
   );
 
   return (
     <div style={{ maxWidth: "440px", margin: "40px auto", padding: `0 ${px}` }}>
-      <h2 style={{ fontFamily: "'Georgia',serif", fontSize: bp.isMobile ? "24px" : "28px", fontWeight: 900, color: INK, margin: "0 0 6px" }}>{mode === "signin" ? "Sign In" : "Create Account"}</h2>
-      <p style={{ fontSize: "12px", color: MID, lineHeight: 1.6, margin: "0 0 24px" }}>{mode === "signin" ? "Access saved listings and your account." : "Join to save listings and submit businesses."}</p>
+      <h2 style={{ fontFamily: "'Georgia',serif", fontSize: bp.isMobile ? "24px" : "28px", fontWeight: 900, color: INK, margin: "0 0 6px" }}>Sign In</h2>
+      <p style={{ fontSize: "12px", color: MID, lineHeight: 1.6, margin: "0 0 24px" }}>Access your account and the admin panel.</p>
       <div style={{ display: "grid", gap: "14px" }}>
-        {mode === "signup" && <FR label="YOUR NAME"><input value={f.name} onChange={e => set("name", e.target.value)} style={INP} placeholder="Full name" /></FR>}
-        <FR label="EMAIL"><input value={f.email} onChange={e => set("email", e.target.value)} style={INP} placeholder="you@example.com" type="email" /></FR>
-        <FR label="PASSWORD"><input value={f.password} onChange={e => set("password", e.target.value)} style={INP} placeholder="••••••••" type="password" /></FR>
-        {mode === "signup" && <p style={{ fontSize: "10px", color: MID, margin: 0 }}>Tip: use "admin" in your email to demo admin access.</p>}
-        <button onClick={auth} style={{ border: `3px solid ${INK}`, background: INK, color: Y, padding: "14px", fontFamily: "inherit", fontSize: "13px", letterSpacing: "3px", cursor: "pointer", textTransform: "uppercase", marginTop: "4px" }}>
-          {mode === "signin" ? "SIGN IN →" : "CREATE ACCOUNT →"}
-        </button>
-        <button onClick={() => setMode(mode === "signin" ? "signup" : "signin")} style={{ border: `2px solid ${INK}`, background: "transparent", color: INK, padding: "12px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>
-          {mode === "signin" ? "NEED AN ACCOUNT? SIGN UP" : "HAVE AN ACCOUNT? SIGN IN"}
+        <FR label="EMAIL"><input value={f.email} onChange={e => setF(p => ({ ...p, email: e.target.value }))} style={INP} placeholder="you@example.com" type="email" /></FR>
+        <FR label="PASSWORD"><input value={f.password} onChange={e => setF(p => ({ ...p, password: e.target.value }))} style={INP} placeholder="••••••••" type="password" onKeyDown={e => e.key === "Enter" && doSignIn()} /></FR>
+        {err && <p style={{ fontSize: "11px", color: RED, margin: 0 }}>{err}</p>}
+        <button onClick={doSignIn} disabled={busy} style={{ border: `3px solid ${INK}`, background: INK, color: Y, padding: "14px", fontFamily: "inherit", fontSize: "13px", letterSpacing: "3px", cursor: "pointer", textTransform: "uppercase", marginTop: "4px", opacity: busy ? 0.6 : 1 }}>
+          {busy ? "SIGNING IN…" : "SIGN IN →"}
         </button>
       </div>
     </div>
@@ -5390,151 +5405,296 @@ function AccountPanel({ bp, user, setUser, goDir }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ADMIN PANEL
+// ADMIN PANEL — Full CMS
 // ══════════════════════════════════════════════════════════════════════════════
-function AdminPanel({ bp, pending, onApprove, onReject, brickCats, onlineCats, onAddCat, allListings }) {
-  const [nc, setNc] = useState({ id: "", label: "", icon: "", targetMode: "brick" });
-  const px = bp.isMobile ? "16px" : "40px";
+const ADMIN_CATS = {
+  skate:"Skate Shops",tattoo:"Tattoo Shops",divebar:"Bars & Nightlife",moto:"Moto & Car",
+  sneaker:"Sneakers",gallery:"Art Galleries",record:"Record Stores",venue:"Venues",
+  bookstore:"Book Stores",surf:"Surf Shops",diner:"Diners",vintage:"Vintage & Thrift",
+  barber:"Barbers",food:"Food & Bodegas",furniture:"Furniture",brand:"Small Brands",
+  tattooer:"Tattooers",artist:"Artists",author:"Authors",ceramics:"Ceramics",
+  motoparts:"Motorcycle Parts",leather:"Leather Goods",photographer:"Photographers",music:"Music / Labels"
+};
 
-  const addCat = () => {
-    if (!nc.label) return;
-    onAddCat({ id: nc.id || nc.label.toLowerCase().replace(/\s+/g, "_"), label: nc.label, icon: nc.icon || "✦" }, nc.targetMode);
-    setNc({ id: "", label: "", icon: "", targetMode: "brick" });
+function AdminPanel({ bp }) {
+  const [adminTab, setAdminTab]   = useState("listings");
+  const [rows, setRows]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState("");
+  const [catFilter, setCatFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("approved");
+  const [page, setPage]           = useState(1);
+  const [editing, setEditing]     = useState(null); // listing being edited
+  const [saving, setSaving]       = useState(false);
+  const [saveMsg, setSaveMsg]     = useState("");
+  const [submissions, setSubmissions] = useState([]);
+  const PER = 50;
+  const px = bp.isMobile ? "12px" : "24px";
+
+  const load = async () => {
+    setLoading(true);
+    const { supabase } = await import("./lib/supabase.js");
+    const { data } = await supabase
+      .from("listings")
+      .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url")
+      .order("name");
+    setRows(data || []);
+    setLoading(false);
   };
 
-  return (
-    <div style={{ maxWidth: "820px", margin: "0 auto", padding: `28px ${px}` }}>
-      <h2 style={{ fontFamily: "'Georgia',serif", fontSize: bp.isMobile ? "24px" : "28px", fontWeight: 900, color: INK, margin: "0 0 24px" }}>Admin Panel</h2>
+  const loadSubs = async () => {
+    const { supabase } = await import("./lib/supabase.js");
+    const { data } = await supabase
+      .from("submissions")
+      .select("*")
+      .order("created_at", { ascending: false });
+    setSubmissions(data || []);
+  };
 
-      {/* Pending submissions */}
-      <section style={{ marginBottom: "36px" }}>
-        <Divider>PENDING SUBMISSIONS ({pending.length})</Divider>
-        {pending.length === 0 ? (
-          <div style={{ padding: "24px", border: `1px dashed rgba(26,16,6,0.3)`, textAlign: "center", fontSize: "11px", color: MID, letterSpacing: "2px" }}>NO PENDING SUBMISSIONS</div>
-        ) : pending.map(s => (
-          <div key={s.id} style={{ border: `1px solid ${INK}`, padding: "14px", marginBottom: "10px", background: Y, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", alignItems: "flex-start" }}>
-            <div style={{ flex: 1, minWidth: "180px" }}>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "4px" }}>
-                <span style={{ fontFamily: "'Georgia',serif", fontSize: "16px", fontWeight: "bold", color: INK }}>{s.name}</span>
-                <span style={{ fontSize: "9px", border: `1px solid rgba(26,16,6,0.3)`, padding: "1px 5px", color: MID }}>{s.type === "brick" ? "📍 B&M" : "🌐 ONLINE"}</span>
-              </div>
-              <div style={{ fontSize: "10px", color: MID, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>{s.category} · {[s.city, s.country].filter(Boolean).join(", ")}</div>
-              <div style={{ fontSize: "12px", color: INK, opacity: 0.72 }}>{s.desc}</div>
-            </div>
-            <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
-              <button onClick={() => onApprove(s)} style={{ border: `2px solid ${INK}`, background: INK, color: Y, padding: "8px 14px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>APPROVE</button>
-              <button onClick={() => onReject(s.id)} style={{ border: `2px solid ${RED}`, background: "transparent", color: RED, padding: "8px 14px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>REJECT</button>
-            </div>
-          </div>
-        ))}
-      </section>
+  useEffect(() => { load(); }, []);
+  useEffect(() => { if (adminTab === "submissions") loadSubs(); }, [adminTab]);
 
-      {/* Add category */}
-      <section style={{ marginBottom: "36px" }}>
-        <Divider>ADD NEW CATEGORY</Divider>
-        <div style={{ border: `1px solid ${INK}`, padding: "18px", background: Y }}>
-          <div style={{ fontSize: "11px", color: MID, marginBottom: "12px" }}>Choose which mode the new category belongs to — it will only appear in that filter set.</div>
-          <div style={{ display: "flex", border: `2px solid ${INK}`, marginBottom: "14px", width: "fit-content" }}>
-            {[["brick", "📍 Brick & Mortar"], ["online", "🌐 Online Only"]].map(([v, l]) => (
-              <button key={v} onClick={() => setNc(p => ({ ...p, targetMode: v }))}
-                style={{ border: "none", background: nc.targetMode === v ? INK : "transparent", color: nc.targetMode === v ? Y : INK, padding: "8px 14px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", textTransform: "uppercase" }}>{l}</button>
-            ))}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: bp.isMobile ? "1fr 2fr" : "72px 1fr 1fr auto", gap: "10px", alignItems: "end" }}>
-            <FR label="ICON"><input value={nc.icon} onChange={e => setNc(p => ({ ...p, icon: e.target.value }))} style={INP} placeholder="🎸" /></FR>
-            <FR label="LABEL"><input value={nc.label} onChange={e => setNc(p => ({ ...p, label: e.target.value, id: e.target.value.toLowerCase().replace(/\s+/g, "_") }))} style={INP} placeholder="e.g. Flower Shops" /></FR>
-            {!bp.isMobile && <FR label="ID (auto)"><input value={nc.id} onChange={e => setNc(p => ({ ...p, id: e.target.value }))} style={INP} placeholder="flower_shops" /></FR>}
-            <button onClick={addCat} style={{ border: `2px solid ${INK}`, background: INK, color: Y, padding: "0 14px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase", height: "38px" }}>+ ADD</button>
-          </div>
-          <div style={{ marginTop: "18px", display: "grid", gridTemplateColumns: bp.isMobile ? "1fr" : "1fr 1fr", gap: "16px" }}>
-            {[["brick", "📍 Brick & Mortar", brickCats], ["online", "🌐 Online Only", onlineCats]].map(([type, lbl, cats]) => (
-              <div key={type}>
-                <div style={{ fontSize: "9px", letterSpacing: "2px", color: MID, marginBottom: "8px", textTransform: "uppercase" }}>{lbl} ({cats.length})</div>
-                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                  {cats.map(c => <span key={c.id} style={{ fontSize: "8px", letterSpacing: "1px", border: `1px solid rgba(26,16,6,0.28)`, padding: "2px 6px", textTransform: "uppercase", color: MID }}>{c.icon} {c.label}</span>)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+  const filtered = rows.filter(r => {
+    const q = search.toLowerCase();
+    if (q && !r.name.toLowerCase().includes(q) && !(r.city||"").toLowerCase().includes(q)) return false;
+    if (catFilter !== "all" && r.category !== catFilter) return false;
+    if (typeFilter !== "all" && r.type !== typeFilter) return false;
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    return true;
+  });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER));
+  const paged = filtered.slice((page-1)*PER, page*PER);
 
-      {/* Print export */}
-      <section>
-        <Divider>ANNUAL PRINT DIRECTORY EXPORT</Divider>
-        <div style={{ border: `2px solid ${INK}`, padding: "18px", background: Y2 }}>
-          <p style={{ fontSize: "12px", color: MID, lineHeight: 1.7, marginBottom: "14px" }}>
-            Generates a print-ready 5.5" × 8.5" layout for the annual physical directory. Browser → File → Print → Save as PDF. Send to Mixam, Newspaper Club, or Smartpress.
-          </p>
-          <button onClick={() => {
-            const cats = [...brickCats, ...onlineCats];
-            const catMap = {};
-            allListings.forEach(b => {
-              const cat = cats.find(c => c.id === b.category);
-              const key = `${b.type === "brick" ? "📍" : "🌐"} ${cat ? `${cat.icon} ${cat.label}` : b.category}`;
-              if (!catMap[key]) catMap[key] = [];
-              catMap[key].push(b);
-            });
-            const sections = Object.entries(catMap).sort(([a], [b]) => a.localeCompare(b)).map(([cat, items]) => `<div class="section"><div class="ch">${cat}</div>${items.sort((a, b) => (a.city||"").localeCompare(b.city||"")||a.name.localeCompare(b.name)).map(b => `<div class="li"><div class="lt"><span class="ln">${b.name}</span><span class="lb">${b.type==="brick"?"B&M":"ONLINE"}</span></div><div class="ll">${[b.city,b.state,b.country].filter(Boolean).join(", ")}</div><div class="ld">${b.desc}</div><div class="lk">${b.website?`<span>🔗 ${b.website}</span>`:""}${b.address?`<span>📍 ${b.address}</span>`:""}${b.phone?`<span>☎ ${b.phone}</span>`:""}</div></div>`).join("")}</div>`).join("");
-            const year = new Date().getFullYear();
-            const win = window.open("", "_blank");
-            if (win) {
-              win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>The Treasures List ${year}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#F0D800;color:#1a1006;font-family:'Courier New',Courier,monospace;font-size:8pt}@page{size:5.5in 8.5in;margin:.6in .55in}.cover{page-break-after:always;text-align:center;padding:1.2in .5in;border:3px double #1a1006}.ct{font-family:Georgia,serif;font-size:32pt;font-weight:bold;line-height:1.05;margin-bottom:12px}.cy{font-size:18pt;font-family:Georgia,serif;border-top:2px solid #1a1006;border-bottom:2px solid #1a1006;padding:8px 0;margin-bottom:20px}.ch{font-family:Georgia,serif;font-size:12pt;font-weight:bold;border-bottom:2px solid #1a1006;margin:16px 0 8px;padding-bottom:3px}.li{margin-bottom:9px;padding-bottom:9px;border-bottom:1px dashed rgba(26,16,6,.22);page-break-inside:avoid}.lt{display:flex;justify-content:space-between}.ln{font-family:Georgia,serif;font-size:9.5pt;font-weight:bold}.lb{font-size:5.5pt;letter-spacing:2px;color:#6b5a00}.ll{font-size:6.5pt;letter-spacing:1px;text-transform:uppercase;color:#6b5a00;margin:1px 0 2px}.ld{font-size:7pt;line-height:1.5;margin-bottom:3px}.lk{font-size:6pt;color:#6b5a00;display:flex;flex-wrap:wrap;gap:3px 10px}.foot{font-size:6pt;letter-spacing:2px;text-transform:uppercase;color:#6b5a00;text-align:center;margin-top:40px;border-top:1px solid rgba(26,16,6,.2);padding-top:10px}</style></head><body><div class="cover"><div style="font-size:7pt;letter-spacing:4px;color:#6b5a00;margin-bottom:12px">VOL. ${year - 2024} — ANNUAL PRINT EDITION</div><div class="ct">THE<br>TREASURES<br>LIST</div><div class="cy">${year}</div><div style="font-size:7pt;letter-spacing:2px;text-transform:uppercase;color:#6b5a00;line-height:2">Independent Business & Creator Directory</div><div style="margin-top:20px;font-size:9pt">${allListings.length} Listings</div></div>${sections}<div class="foot">The Treasures List ${year} · thetreasureslist.com</div></body></html>`);
-              win.document.close();
-              setTimeout(() => win.print(), 800);
-            }
-          }} style={{ border: `3px solid ${INK}`, background: INK, color: Y, padding: "12px 24px", fontFamily: "inherit", fontSize: "12px", letterSpacing: "3px", cursor: "pointer", textTransform: "uppercase" }}>
-            🖨 GENERATE PRINT DIRECTORY →
-          </button>
-          <div style={{ marginTop: "10px", fontSize: "10px", color: MID }}>
-            {allListings.length} listings · 5.5" × 8.5" · Saddle-stitch or perfect bound
-          </div>
-        </div>
-      </section>
-    </div>
+  const openEdit = r => setEditing({ ...r, instagram: r.instagram || "", website: r.website || "", description: r.description || "" });
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setSaving(true); setSaveMsg("");
+    const { supabase } = await import("./lib/supabase.js");
+    const { error } = await supabase.from("listings").update({
+      name:        editing.name,
+      category:    editing.category,
+      type:        editing.type,
+      status:      editing.status,
+      city:        editing.city,
+      state:       editing.state,
+      country:     editing.country,
+      website:     editing.website,
+      description: editing.description,
+      instagram:   editing.instagram,
+    }).eq("id", editing.id);
+    if (error) { setSaveMsg("Error: " + error.message); }
+    else {
+      setSaveMsg("Saved ✓");
+      setRows(p => p.map(r => r.id === editing.id ? { ...r, ...editing } : r));
+      setTimeout(() => { setSaveMsg(""); setEditing(null); }, 1200);
+    }
+    setSaving(false);
+  };
+
+  const approveSub = async (sub) => {
+    const { supabase } = await import("./lib/supabase.js");
+    const d = sub.submitted_data;
+    const { error } = await supabase.from("listings").insert({
+      name: d.name, type: d.type || "brick", category: d.category || "brand",
+      status: "approved", city: d.city || "", state: d.state || "",
+      country: d.country || "", website: d.website || "",
+      description: d.desc || "", instagram: d.instagram || "", source: "submission"
+    });
+    if (!error) {
+      await supabase.from("submissions").update({ status: "approved" }).eq("id", sub.id);
+      loadSubs(); load();
+    }
+  };
+
+  const rejectSub = async (id) => {
+    const { supabase } = await import("./lib/supabase.js");
+    await supabase.from("submissions").update({ status: "rejected" }).eq("id", id);
+    loadSubs();
+  };
+
+  const INP_S = { border: `1.5px solid rgba(26,16,6,0.3)`, background: "white", padding: "7px 10px", fontFamily: "inherit", fontSize: "11px", color: INK, width: "100%", outline: "none" };
+  const TAB_BTN = (id, lbl) => (
+    <button key={id} onClick={() => setAdminTab(id)} style={{ border: `2px solid ${INK}`, background: adminTab===id?INK:"transparent", color: adminTab===id?Y:INK, padding: "8px 14px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>{lbl}</button>
   );
-}
 
-// ─── SHARED ATOMS ─────────────────────────────────────────────────────────────
-function Pill({ active, onClick, children, small }) {
   return (
-    <button onClick={onClick} style={{ border: `1.5px solid ${INK}`, background: active ? INK : WH, color: active ? Y : INK, padding: small ? "5px 9px" : "4px 10px", fontFamily: "'Courier New',Courier,monospace", fontSize: "9px", letterSpacing: "1.5px", cursor: "pointer", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0, touchAction: "manipulation" }}>
-      {children}
-    </button>
-  );
-}
-function FS({ label, val, set, opts, links }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-      <div style={{ fontSize: "9px", letterSpacing: "2px", color: MID, textTransform: "uppercase" }}>{label}</div>
-      <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-        <select value={val} onChange={e => set(e.target.value)} style={{ border: `2px solid ${INK}`, background: WH, padding: "6px 8px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", outline: "none", color: INK, textTransform: "uppercase" }}>
-          <option value="all">ALL</option>
-          {opts.map(o => <option key={o} value={o}>{o.toUpperCase()}</option>)}
-        </select>
-        {links?.[val] && val !== "all" && <a href={links[val]} target="_blank" rel="noopener noreferrer" style={{ fontSize: "18px", textDecoration: "none" }}>📍</a>}
+    <div style={{ maxWidth: "1100px", margin: "0 auto", padding: `20px ${px}` }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "10px" }}>
+        <h2 style={{ fontFamily: "'Georgia',serif", fontSize: "24px", fontWeight: 900, color: INK, margin: 0 }}>
+          Admin — The Treasures List
+        </h2>
+        <div style={{ display: "flex", gap: "0" }}>
+          {TAB_BTN("listings", `Listings (${rows.length})`)}
+          {TAB_BTN("submissions", `Submissions (${submissions.length})`)}
+        </div>
       </div>
-    </div>
-  );
-}
-function FR({ label, children, err }) {
-  return (
-    <div>
-      <div style={{ fontSize: "9px", letterSpacing: "2px", textTransform: "uppercase", color: MID, marginBottom: "5px" }}>{label}</div>
-      {children}
-      {err && <div style={{ fontSize: "10px", color: RED, marginTop: "3px" }}>↑ {err}</div>}
-    </div>
-  );
-}
-function Label({ children }) {
-  return <div style={{ fontSize: "10px", letterSpacing: "3px", color: MID, marginBottom: "8px", textTransform: "uppercase" }}>{children}</div>;
-}
-function MapLnk({ href, children }) {
-  return <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: "10px", letterSpacing: "2px", textDecoration: "none", color: INK, textTransform: "uppercase", border: `1px solid ${INK}`, padding: "3px 8px", background: WH }}>{children} →</a>;
-}
-function Divider({ children }) {
-  return <div style={{ fontSize: "10px", letterSpacing: "3px", color: MID, marginBottom: "12px", textTransform: "uppercase", borderBottom: `1px solid rgba(26,16,6,0.25)`, paddingBottom: "6px" }}>{children}</div>;
-}
 
-const INP = { width: "100%", boxSizing: "border-box", border: `2px solid ${INK}`, background: WH, padding: "10px", fontFamily: "'Courier New',Courier,monospace", fontSize: "13px", outline: "none", color: INK };
-const PB  = a => ({ border: `2px solid ${INK}`, background: a ? INK : WH, color: a ? Y : INK, padding: "7px 12px", fontFamily: "'Courier New',Courier,monospace", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", minWidth: "36px", touchAction: "manipulation" });
+      {/* ── LISTINGS TAB ──────────────────────────────────────────────── */}
+      {adminTab === "listings" && (
+        <div>
+          {/* Filters */}
+          <div style={{ display: "flex", gap: "8px", marginBottom: "14px", flexWrap: "wrap", alignItems: "center" }}>
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search name or city…" style={{ ...INP_S, width: "220px" }} />
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} style={{ ...INP_S, width: "auto" }}>
+              <option value="all">All statuses</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
+            </select>
+            <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }} style={{ ...INP_S, width: "auto" }}>
+              <option value="all">All types</option>
+              <option value="brick">B&M</option>
+              <option value="online">Online</option>
+            </select>
+            <select value={catFilter} onChange={e => { setCatFilter(e.target.value); setPage(1); }} style={{ ...INP_S, width: "auto" }}>
+              <option value="all">All categories</option>
+              {Object.entries(ADMIN_CATS).map(([id,lbl]) => <option key={id} value={id}>{lbl}</option>)}
+            </select>
+            <span style={{ fontSize: "10px", letterSpacing: "1px", color: MID }}>{filtered.length} results</span>
+            <button onClick={load} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "7px 12px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer" }}>↻ REFRESH</button>
+          </div>
+
+          {/* Table */}
+          {loading ? (
+            <div style={{ padding: "40px", textAlign: "center", fontSize: "11px", letterSpacing: "2px", color: MID }}>LOADING…</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", fontFamily: "inherit" }}>
+                <thead>
+                  <tr style={{ background: INK, color: Y }}>
+                    {["NAME","CATEGORY","TYPE","STATUS","CITY","DESC",""].map(h => (
+                      <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontSize: "8px", letterSpacing: "2px", fontWeight: "normal", whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map((r, i) => (
+                    <tr key={r.id} style={{ background: i%2===0?"white":"rgba(240,216,0,0.08)", borderBottom: "1px solid rgba(26,16,6,0.08)" }}>
+                      <td style={{ padding: "7px 10px", maxWidth: "200px" }}>
+                        <div style={{ fontWeight: "bold", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                        {r.website && <div style={{ fontSize: "9px", color: MID, marginTop: "1px" }}>{r.website}</div>}
+                      </td>
+                      <td style={{ padding: "7px 10px", color: MID, whiteSpace: "nowrap" }}>{ADMIN_CATS[r.category] || r.category}</td>
+                      <td style={{ padding: "7px 10px", color: MID, whiteSpace: "nowrap" }}>{r.type}</td>
+                      <td style={{ padding: "7px 10px" }}>
+                        <span style={{ fontSize: "8px", letterSpacing: "1px", padding: "2px 6px", background: r.status==="approved"?"#1a1006":r.status==="pending"?"#F0D800":"rgba(26,16,6,0.1)", color: r.status==="approved"?"#F0D800":r.status==="pending"?"#1a1006":MID }}>{r.status?.toUpperCase()}</span>
+                      </td>
+                      <td style={{ padding: "7px 10px", color: MID, whiteSpace: "nowrap" }}>{[r.city, r.state].filter(Boolean).join(", ")}</td>
+                      <td style={{ padding: "7px 10px", maxWidth: "180px" }}>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r.description ? INK : "rgba(26,16,6,0.25)", fontStyle: r.description ? "normal" : "italic" }}>
+                          {r.description || "No description"}
+                        </div>
+                      </td>
+                      <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+                        <button onClick={() => openEdit(r)} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "4px 10px", fontFamily: "inherit", fontSize: "8px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>EDIT</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Paginator */}
+          {totalPages > 1 && (
+            <div style={{ display: "flex", gap: "4px", marginTop: "14px", alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "5px 10px", fontFamily: "inherit", fontSize: "9px", cursor: "pointer" }}>← PREV</button>
+              {Array.from({length: Math.min(totalPages,7)},(_,i)=>{
+                const pg = totalPages<=7?i+1:page<=4?i+1:page>=totalPages-3?totalPages-6+i:page-3+i;
+                return <button key={pg} onClick={()=>setPage(pg)} style={{ border:`1.5px solid ${INK}`, background:pg===page?INK:"transparent", color:pg===page?Y:INK, padding:"5px 8px", fontFamily:"inherit", fontSize:"9px", cursor:"pointer" }}>{pg}</button>;
+              })}
+              <button onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "5px 10px", fontFamily: "inherit", fontSize: "9px", cursor: "pointer" }}>NEXT →</button>
+              <span style={{ fontSize: "9px", color: MID, marginLeft: "8px" }}>PAGE {page} OF {totalPages}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SUBMISSIONS TAB ───────────────────────────────────────────── */}
+      {adminTab === "submissions" && (
+        <div>
+          {submissions.length === 0 ? (
+            <div style={{ padding: "60px", textAlign: "center", fontSize: "11px", letterSpacing: "2px", color: MID, border: `1px dashed rgba(26,16,6,0.2)` }}>NO SUBMISSIONS YET</div>
+          ) : submissions.map(sub => (
+            <div key={sub.id} style={{ border: `1px solid ${INK}`, padding: "16px", marginBottom: "10px", background: sub.status==="pending"?Y:"white" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ flex: 1, minWidth: "200px" }}>
+                  <div style={{ fontWeight: "bold", fontSize: "15px", color: INK, marginBottom: "4px" }}>{sub.submitted_data?.name || "Unnamed"}</div>
+                  <div style={{ fontSize: "9px", letterSpacing: "1px", color: MID, textTransform: "uppercase", marginBottom: "6px" }}>
+                    {sub.submitted_data?.category} · {sub.submitted_data?.city} · {new Date(sub.created_at).toLocaleDateString()}
+                  </div>
+                  {sub.submitted_data?.desc && <div style={{ fontSize: "11px", color: INK, lineHeight: 1.6 }}>{sub.submitted_data.desc}</div>}
+                  {sub.submitter_email && <div style={{ fontSize: "9px", color: MID, marginTop: "4px" }}>From: {sub.submitter_email}</div>}
+                </div>
+                {sub.status === "pending" && (
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button onClick={() => approveSub(sub)} style={{ border: `2px solid ${INK}`, background: INK, color: Y, padding: "8px 16px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>APPROVE</button>
+                    <button onClick={() => rejectSub(sub.id)} style={{ border: `2px solid ${RED}`, background: "transparent", color: RED, padding: "8px 16px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>REJECT</button>
+                  </div>
+                )}
+                {sub.status !== "pending" && (
+                  <span style={{ fontSize: "9px", letterSpacing: "2px", color: sub.status==="approved"?"green":RED, textTransform: "uppercase" }}>{sub.status}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── EDIT MODAL ────────────────────────────────────────────────── */}
+      {editing && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(26,16,6,0.75)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={e => e.target===e.currentTarget && setEditing(null)}>
+          <div style={{ background: "white", border: `2px solid ${INK}`, width: "100%", maxWidth: "560px", maxHeight: "90vh", overflowY: "auto", padding: "24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h3 style={{ fontFamily: "'Georgia',serif", fontSize: "18px", fontWeight: 900, color: INK, margin: 0 }}>Edit Listing</h3>
+              <button onClick={() => setEditing(null)} style={{ border: "none", background: "transparent", fontSize: "18px", cursor: "pointer", color: INK }}>×</button>
+            </div>
+            <div style={{ display: "grid", gap: "12px" }}>
+              <FR label="NAME"><input value={editing.name} onChange={e => setEditing(p=>({...p,name:e.target.value}))} style={INP_S} /></FR>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <FR label="CATEGORY">
+                  <select value={editing.category} onChange={e => setEditing(p=>({...p,category:e.target.value}))} style={INP_S}>
+                    {Object.entries(ADMIN_CATS).map(([id,lbl]) => <option key={id} value={id}>{lbl}</option>)}
+                  </select>
+                </FR>
+                <FR label="TYPE">
+                  <select value={editing.type} onChange={e => setEditing(p=>({...p,type:e.target.value}))} style={INP_S}>
+                    <option value="brick">Brick & Mortar</option>
+                    <option value="online">Online</option>
+                  </select>
+                </FR>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+                <FR label="CITY"><input value={editing.city||""} onChange={e => setEditing(p=>({...p,city:e.target.value}))} style={INP_S} /></FR>
+                <FR label="STATE"><input value={editing.state||""} onChange={e => setEditing(p=>({...p,state:e.target.value}))} style={INP_S} /></FR>
+                <FR label="COUNTRY"><input value={editing.country||""} onChange={e => setEditing(p=>({...p,country:e.target.value}))} style={INP_S} /></FR>
+              </div>
+              <FR label="WEBSITE"><input value={editing.website} onChange={e => setEditing(p=>({...p,website:e.target.value}))} style={INP_S} placeholder="domain.com" /></FR>
+              <FR label="INSTAGRAM"><input value={editing.instagram} onChange={e => setEditing(p=>({...p,instagram:e.target.value}))} style={INP_S} placeholder="handle (no @)" /></FR>
+              <FR label="STATUS">
+                <select value={editing.status} onChange={e => setEditing(p=>({...p,status:e.target.value}))} style={INP_S}>
+                  <option value="approved">Approved</option>
+                  <option value="pending">Pending</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </FR>
+              <FR label="DESCRIPTION">
+                <textarea value={editing.description} onChange={e => setEditing(p=>({...p,description:e.target.value}))} style={{ ...INP_S, height: "80px", resize: "vertical" }} placeholder="1-2 sentence editorial description…" />
+              </FR>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "4px" }}>
+                <button onClick={saveEdit} disabled={saving} style={{ border: `2px solid ${INK}`, background: INK, color: Y, padding: "12px 24px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase", opacity: saving?0.6:1 }}>
+                  {saving ? "SAVING…" : "SAVE CHANGES"}
+                </button>
+                <button onClick={() => setEditing(null)} style={{ border: `2px solid ${INK}`, background: "transparent", color: INK, padding: "12px 20px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>CANCEL</button>
+                {saveMsg && <span style={{ fontSize: "11px", color: saveMsg.startsWith("Error") ? RED : "green", letterSpacing: "1px" }}>{saveMsg}</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
