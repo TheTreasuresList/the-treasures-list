@@ -5504,10 +5504,20 @@ function AdminPanel({ bp }) {
   // ── Data loaders ────────────────────────────────────────────────────────────
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from("listings")
-      .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url,phone,address,tags")
-      .order("name");
-    setRows(data || []);
+    const all = [];
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data, error } = await supabase.from("listings")
+        .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url,phone,address,tags")
+        .order("name")
+        .range(from, from + PAGE - 1);
+      if (error || !data) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    setRows(all);
     setLoading(false);
   };
 
