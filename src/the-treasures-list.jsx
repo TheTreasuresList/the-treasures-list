@@ -5361,9 +5361,18 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
         ))}
       </div>
 
-      {ok && <div style={{ border: `2px solid #2d6a4f`, padding: "14px", marginBottom: "20px", background: "rgba(255,255,255,0.4)", fontSize: "12px", color: "#2d6a4f" }}>✓ SUBMISSION RECEIVED — We'll review and approve your listing within 1–3 days.</div>}
+      {ok && (
+        <div style={{ border:`3px solid ${INK}`, background:Y, padding:"32px 24px", textAlign:"center", marginBottom:"20px" }}>
+          <div style={{ fontSize:"32px", marginBottom:"12px" }}>✓</div>
+          <div style={{ fontFamily:"'Georgia',serif", fontSize:"22px", fontWeight:900, color:INK, marginBottom:"8px" }}>Submission received.</div>
+          <div style={{ fontSize:"12px", color:MID, lineHeight:1.7, maxWidth:"380px", margin:"0 auto 20px" }}>
+            We review every listing for quality before it goes live. If it's a good fit, you'll see it on the site within 1–3 days. No account needed.
+          </div>
+          <button type="button" onClick={()=>window.location.reload()} style={{ border:`2px solid ${INK}`, background:"transparent", color:INK, padding:"10px 24px", fontFamily:"inherit", fontSize:"10px", letterSpacing:"2px", cursor:"pointer", textTransform:"uppercase" }}>SUBMIT ANOTHER</button>
+        </div>
+      )}
 
-      <div style={{ display: "grid", gap: "14px" }}>
+      {!ok && <div style={{ display: "grid", gap: "14px" }}>
         <div style={{ background:"rgba(240,216,0,0.3)", border:`1.5px solid ${INK}`, padding:"12px", marginBottom:"8px" }}>
           <div style={{ fontSize:"9px", letterSpacing:"2px", textTransform:"uppercase", color:INK, marginBottom:"8px", fontWeight:"bold" }}>⚡ AUTOFILL FROM GOOGLE MAPS</div>
           <div style={{ display:"flex", gap:"8px" }}>
@@ -5425,7 +5434,7 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
           {submitting ? "SUBMITTING…" : "SUBMIT FOR REVIEW →"}
         </button>
         <p style={{ fontSize: "10px", color: MID, margin: 0, letterSpacing: "1px" }}>Listings are free. We review every submission for quality before publishing.</p>
-      </div>
+      </div>}
     </div>
   );
 }
