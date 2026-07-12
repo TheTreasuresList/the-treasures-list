@@ -9,6 +9,7 @@ const INK = "#1a1006";
 const MID = "#6b5a00";
 const RED = "#c0392b";
 const WH  = "rgba(255,255,255,0.28)";
+const INP = { width: "100%", boxSizing: "border-box", border: `2px solid ${INK}`, background: WH, padding: "10px", fontFamily: "'Courier New',Courier,monospace", fontSize: "13px", outline: "none", color: INK };
 
 // ─── RESPONSIVE HOOK ──────────────────────────────────────────────────────────
 function useBreakpoint() {
