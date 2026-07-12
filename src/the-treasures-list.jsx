@@ -5626,6 +5626,16 @@ function AdminPanel({ bp }) {
   };
   const toggleAll    = () => setSelected(p => p.size===paged.length ? new Set() : new Set(paged.map(r=>r.id)));
 
+  const bulkUpdateStatus = async (status) => {
+    if (!selected.size) return;
+    if (!confirm(`${status==="approved"?"Approve":"Reject"} ${selected.size} listing${selected.size>1?"s":""}?`)) return;
+    setBulking(true);
+    await supabase.from("listings").update({ status }).in("id", [...selected]);
+    setRows(p => p.map(r => selected.has(r.id) ? { ...r, status } : r));
+    setSelected(new Set());
+    setBulking(false);
+  };
+
   // ── Submissions ──────────────────────────────────────────────────────────────
   const approveSub = async (sub) => {
     const d = sub.submitted_data || {};
@@ -5704,9 +5714,11 @@ function AdminPanel({ bp }) {
             <span style={{ fontSize:"10px", color:MID, letterSpacing:"1px" }}>{filtered.length} results</span>
             <div style={{ marginLeft:"auto", display:"flex", gap:"8px" }}>
               {selected.size > 0 && (
-                <button onClick={deleteSelected} disabled={deleting} style={{ ...BTN("#c0392b", "white"), border:"2px solid #c0392b" }}>
-                  {deleting ? "DELETING…" : `DELETE (${selected.size})`}
-                </button>
+                <>
+                  <button onClick={()=>bulkUpdateStatus("approved")} disabled={bulking} style={{ ...BTN("green","white"), border:"2px solid green" }}>✓ APPROVE ({selected.size})</button>
+                  <button onClick={()=>bulkUpdateStatus("rejected")} disabled={bulking} style={{ ...BTN(), border:"2px solid #c0392b", color:"#c0392b" }}>✗ REJECT ({selected.size})</button>
+                  <button onClick={deleteSelected} disabled={deleting} style={{ ...BTN("#c0392b","white"), border:"2px solid #c0392b" }}>{deleting?"DELETING…":`DELETE (${selected.size})`}</button>
+                </>
               )}
               {selected.size > 0 && (
                 <>
