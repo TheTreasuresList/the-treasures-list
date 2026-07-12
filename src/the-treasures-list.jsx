@@ -1,5 +1,24 @@
 import { useState, useMemo, useEffect } from "react";
+import React from 'react';
 import { supabase, fetchListings, signIn, signOut, getSession } from "./lib/supabase.js";
+
+
+// ─── ERROR BOUNDARY (debug) ──────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return React.createElement('div', { style: { padding: '40px', fontFamily: 'Courier New', background: '#F0D800', minHeight: '100vh' } },
+        React.createElement('h2', { style: { fontSize: '18px', marginBottom: '12px' } }, 'App Error (debug):'),
+        React.createElement('pre', { style: { fontSize: '12px', whiteSpace: 'pre-wrap', background: 'white', padding: '20px' } }, 
+          this.state.error.toString() + '\n\n' + (this.state.error.stack || '')
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
 const Y   = "#F0D800";
@@ -4611,7 +4630,8 @@ const PER_PAGE = 20;
 // ══════════════════════════════════════════════════════════════════════════════
 // ROOT
 // ══════════════════════════════════════════════════════════════════════════════
-export default function App() {
+// ─── WRAPPED APP ─────────────────────────────────────────────────────────────
+function AppInner() {
   const bp = useBreakpoint();
   const [listings,   setListings]   = useState(SAMPLE);
   const [loading,    setLoading]    = useState(true);
@@ -5356,52 +5376,6 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ACCOUNT PANEL
 // ══════════════════════════════════════════════════════════════════════════════
-function Divider({ children }) {
-  return <div style={{ fontSize: "10px", letterSpacing: "3px", color: MID, marginBottom: "12px", textTransform: "uppercase", borderBottom: `1px solid rgba(26,16,6,0.25)`, paddingBottom: "6px" }}>{children}</div>;
-}
-
-
-function FS({ label, val, set, opts, links }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-      <div style={{ fontSize: "9px", letterSpacing: "2px", color: MID, textTransform: "uppercase" }}>{label}</div>
-      <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-        <select value={val} onChange={e => set(e.target.value)} style={{ border: `2px solid ${INK}`, background: WH, padding: "6px 8px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", outline: "none", color: INK, textTransform: "uppercase" }}>
-          <option value="all">ALL</option>
-          {opts.map(o => <option key={o} value={o}>{o.toUpperCase()}</option>)}
-        </select>
-        {links?.[val] && val !== "all" && <a href={links[val]} target="_blank" rel="noopener noreferrer" style={{ fontSize: "18px", textDecoration: "none" }}>📍</a>}
-      </div>
-    </div>
-  );
-}
-
-function Label({ children }) {
-  return <div style={{ fontSize: "10px", letterSpacing: "3px", color: MID, marginBottom: "8px", textTransform: "uppercase" }}>{children}</div>;
-}
-
-function MapLnk({ href, children }) {
-  return <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: "10px", letterSpacing: "2px", textDecoration: "none", color: INK, textTransform: "uppercase", border: `1px solid ${INK}`, padding: "3px 8px", background: WH }}>{children} →</a>;
-}
-
-function Pill({ active, onClick, children, small }) {
-  return (
-    <button onClick={onClick} style={{ border: `1.5px solid ${INK}`, background: active ? INK : WH, color: active ? Y : INK, padding: small ? "5px 9px" : "4px 10px", fontFamily: "'Courier New',Courier,monospace", fontSize: "9px", letterSpacing: "1.5px", cursor: "pointer", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0, touchAction: "manipulation" }}>
-      {children}
-    </button>
-  );
-}
-
-function FR({ label, children, err }) {
-  return (
-    <div>
-      <div style={{ fontSize: "9px", letterSpacing: "2px", textTransform: "uppercase", color: MID, marginBottom: "5px" }}>{label}</div>
-      {children}
-      {err && <div style={{ fontSize: "10px", color: RED, marginTop: "3px" }}>↑ {err}</div>}
-    </div>
-  );
-}
-
 function AccountPanel({ bp, user, setUser, goDir }) {
   const [f, setF] = useState({ email: "", password: "" });
   const [err, setErr] = useState("");
@@ -5737,4 +5711,8 @@ function AdminPanel({ bp }) {
       )}
     </div>
   );
+}
+
+export default function App() {
+  return React.createElement(ErrorBoundary, null, React.createElement(AppInner, null));
 }
