@@ -4779,8 +4779,7 @@ export default function App() {
         {tab === "submit"  && <SubmitForm bp={bp} brickCats={brickCats} onlineCats={onlineCats} onSubmit={handleSub} ok={subOk} />}
         {tab === "account" && <AccountPanel bp={bp} user={user} setUser={setUser} goDir={() => setTab("directory")} />}
         {tab === "admin"   && user?.role === "admin" && (
-          <AdminPanel bp={bp} pending={pending} onApprove={approve} onReject={reject}
-            brickCats={brickCats} onlineCats={onlineCats} onAddCat={addCat} allListings={listings} />
+          <AdminPanel bp={bp} />
         )}
       </main>
 
