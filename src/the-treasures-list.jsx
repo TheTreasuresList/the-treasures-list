@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
 import React from 'react';
-
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(e) { return { error: e }; }
@@ -9,13 +8,12 @@ class ErrorBoundary extends React.Component {
       return React.createElement('div', {style:{padding:'40px',fontFamily:'Courier New',background:'#F0D800',minHeight:'100vh'}},
         React.createElement('h2', null, 'CRASH:'),
         React.createElement('pre', {style:{background:'white',padding:'20px',fontSize:'12px',whiteSpace:'pre-wrap'}},
-          this.state.error.toString() + '\n\n' + (this.state.error.stack||''))
+          this.state.error.toString() + '\n\n' + (this.state.error.stack||'').split('\n').slice(0,4).join('\n'))
       );
     }
     return this.props.children;
   }
 }
-
 import { supabase, fetchListings, signIn, signOut, getSession } from "./lib/supabase.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -27,6 +25,10 @@ const MID = "#6b5a00";
 const RED = "#c0392b";
 const WH  = "rgba(255,255,255,0.28)";
 const INP = { width: "100%", boxSizing: "border-box", border: `2px solid ${INK}`, background: WH, padding: "10px", fontFamily: "'Courier New',Courier,monospace", fontSize: "13px", outline: "none", color: INK };
+const PB  = a => ({ border: `2px solid ${INK}`, background: a ? INK : WH, color: a ? Y : INK, padding: "7px 12px", fontFamily: "'Courier New',Courier,monospace", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", minWidth: "36px", touchAction: "manipulation" });
+
+
+
 
 // ─── RESPONSIVE HOOK ──────────────────────────────────────────────────────────
 function useBreakpoint() {
