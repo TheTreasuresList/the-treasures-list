@@ -1,4 +1,16 @@
 import { useState, useMemo, useEffect } from "react";
+
+// ─── PLACES AUTOFILL ────────────────────────────────────────────────────────
+async function fetchPlaceData(mapsUrl) {
+  const r = await fetch('/api/places', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mapsUrl })
+  });
+  if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Autofill failed'); }
+  return r.json();
+}
+
 import { supabase, fetchListings, signIn, signOut, getSession } from "./lib/supabase.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -5295,6 +5307,28 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
     setErr(e); return !Object.keys(e).length;
   };
   const [submitting, setSubmitting] = useState(false);
+  const [mapsUrl, setMapsUrl]       = useState("");
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofillErr, setAutofillErr] = useState("");
+
+  const doAutofill = async () => {
+    if (!mapsUrl.trim()) return;
+    setAutofilling(true); setAutofillErr("");
+    try {
+      const d = await fetchPlaceData(mapsUrl.trim());
+      setF(p => ({ ...p,
+        name:    d.name    || p.name,
+        address: d.address || p.address,
+        city:    d.city    || p.city,
+        state:   d.state   || p.state,
+        country: d.country || p.country,
+        phone:   d.phone   || p.phone,
+        website: d.website || p.website,
+        mapUrl:  mapsUrl,
+      }));
+    } catch(e) { setAutofillErr(e.message); }
+    setAutofilling(false);
+  };
   const submit = async () => {
     if (!validate()) return;
     setSubmitting(true);
@@ -5323,6 +5357,15 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
       {ok && <div style={{ border: `2px solid #2d6a4f`, padding: "14px", marginBottom: "20px", background: "rgba(255,255,255,0.4)", fontSize: "12px", color: "#2d6a4f" }}>✓ SUBMISSION RECEIVED — We'll review and approve your listing within 1–3 days.</div>}
 
       <div style={{ display: "grid", gap: "14px" }}>
+        <div style={{ background:"rgba(240,216,0,0.3)", border:`1.5px solid ${INK}`, padding:"12px", marginBottom:"8px" }}>
+          <div style={{ fontSize:"9px", letterSpacing:"2px", textTransform:"uppercase", color:INK, marginBottom:"8px", fontWeight:"bold" }}>⚡ AUTOFILL FROM GOOGLE MAPS</div>
+          <div style={{ display:"flex", gap:"8px" }}>
+            <input value={mapsUrl} onChange={e=>setMapsUrl(e.target.value)} style={{ ...INP, flex:1, fontSize:"11px" }} placeholder="Paste a Google Maps URL and we'll fill the form…" />
+            <button type="button" onClick={doAutofill} disabled={autofilling||!mapsUrl.trim()} style={{ border:`2px solid ${INK}`, background:INK, color:Y, padding:"10px 16px", fontFamily:"inherit", fontSize:"9px", letterSpacing:"2px", cursor:"pointer", whiteSpace:"nowrap", opacity:autofilling?0.6:1 }}>{autofilling?"FILLING…":"AUTOFILL"}</button>
+          </div>
+          {autofillErr && <div style={{ fontSize:"10px", color:"#c0392b", marginTop:"6px" }}>{autofillErr}</div>}
+          <div style={{ fontSize:"9px", color:MID, marginTop:"6px", letterSpacing:"1px" }}>Works with any Google Maps business link. You can edit the fields after.</div>
+        </div>
         <FR label="NAME *" err={err.name}><input value={f.name} onChange={e => set("name", e.target.value)} style={INP} placeholder="Business or creator name" /></FR>
         <FR label="CATEGORY *" err={err.category}>
           <select value={f.category} onChange={e => set("category", e.target.value)} style={INP}>
@@ -5489,6 +5532,27 @@ function AdminPanel({ bp }) {
   const [isNew, setIsNew]         = useState(false);
   const [saving, setSaving]       = useState(false);
   const [saveMsg, setSaveMsg]     = useState("");
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofillErr, setAutofillErr] = useState("");
+
+  const doAutofill = async (mapsUrl) => {
+    if (!mapsUrl.trim()) return;
+    setAutofilling(true); setAutofillErr("");
+    try {
+      const d = await fetchPlaceData(mapsUrl.trim());
+      setEditing(p => ({ ...p,
+        name:    d.name    || p.name,
+        address: d.address || p.address,
+        city:    d.city    || p.city,
+        state:   d.state   || p.state,
+        country: d.country || p.country,
+        phone:   d.phone   || p.phone,
+        website: d.website || p.website,
+        map_url: mapsUrl,
+      }));
+    } catch(e) { setAutofillErr(e.message); }
+    setAutofilling(false);
+  };
   const [selected, setSelected]   = useState(new Set());
   const [deleting, setDeleting]   = useState(false);
   const [submissions, setSubmissions] = useState([]);
@@ -5903,7 +5967,13 @@ function AdminPanel({ bp }) {
               </div>
               <FR label="ADDRESS"><input value={editing.address||""} onChange={e=>setEditing(p=>({...p,address:e.target.value}))} style={INP_S} /></FR>
               <FR label="PHONE"><input value={editing.phone||""} onChange={e=>setEditing(p=>({...p,phone:e.target.value}))} style={INP_S} /></FR>
-              <FR label="GOOGLE MAPS URL"><input value={editing.map_url||""} onChange={e=>setEditing(p=>({...p,map_url:e.target.value}))} style={INP_S} placeholder="https://maps.google.com/..." /></FR>
+              <FR label="GOOGLE MAPS URL">
+                <div style={{ display:"flex", gap:"8px" }}>
+                  <input value={editing.map_url||""} onChange={e=>setEditing(p=>({...p,map_url:e.target.value}))} style={{ ...INP_S, flex:1 }} placeholder="https://maps.google.com/..." />
+                  <button type="button" onClick={()=>doAutofill(editing.map_url||"")} disabled={autofilling||!editing.map_url?.trim()} style={{ border:`2px solid ${INK}`, background:INK, color:Y, padding:"7px 12px", fontFamily:"inherit", fontSize:"8px", letterSpacing:"2px", cursor:"pointer", whiteSpace:"nowrap", opacity:autofilling?0.6:1 }}>{autofilling?"…":"AUTOFILL"}</button>
+                </div>
+                {autofillErr && <div style={{ fontSize:"10px", color:"#c0392b", marginTop:"4px" }}>{autofillErr}</div>}
+              </FR>
               <FR label="STATUS">
                 <select value={editing.status} onChange={e=>setEditing(p=>({...p,status:e.target.value}))} style={INP_S}>
                   <option value="approved">Approved</option>
