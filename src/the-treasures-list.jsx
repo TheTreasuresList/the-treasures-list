@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { fetchListings, signIn, signOut, getSession, adminUpdateListing, adminFetchSubmissions, adminUpdateSubmission } from "./lib/supabase.js";
+import { supabase, fetchListings, signIn, signOut, getSession } from "./lib/supabase.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
 const Y   = "#F0D800";
@@ -5434,7 +5434,6 @@ function AdminPanel({ bp }) {
 
   const load = async () => {
     setLoading(true);
-    const { supabase } = await import("./lib/supabase.js");
     const { data } = await supabase
       .from("listings")
       .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url")
@@ -5444,7 +5443,6 @@ function AdminPanel({ bp }) {
   };
 
   const loadSubs = async () => {
-    const { supabase } = await import("./lib/supabase.js");
     const { data } = await supabase
       .from("submissions")
       .select("*")
@@ -5471,7 +5469,6 @@ function AdminPanel({ bp }) {
   const saveEdit = async () => {
     if (!editing) return;
     setSaving(true); setSaveMsg("");
-    const { supabase } = await import("./lib/supabase.js");
     const { error } = await supabase.from("listings").update({
       name:        editing.name,
       category:    editing.category,
@@ -5494,7 +5491,6 @@ function AdminPanel({ bp }) {
   };
 
   const approveSub = async (sub) => {
-    const { supabase } = await import("./lib/supabase.js");
     const d = sub.submitted_data;
     const { error } = await supabase.from("listings").insert({
       name: d.name, type: d.type || "brick", category: d.category || "brand",
@@ -5509,7 +5505,6 @@ function AdminPanel({ bp }) {
   };
 
   const rejectSub = async (id) => {
-    const { supabase } = await import("./lib/supabase.js");
     await supabase.from("submissions").update({ status: "rejected" }).eq("id", id);
     loadSubs();
   };
