@@ -5356,6 +5356,42 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ACCOUNT PANEL
 // ══════════════════════════════════════════════════════════════════════════════
+function Divider({ children }) {
+  return <div style={{ fontSize: "10px", letterSpacing: "3px", color: MID, marginBottom: "12px", textTransform: "uppercase", borderBottom: `1px solid rgba(26,16,6,0.25)`, paddingBottom: "6px" }}>{children}</div>;
+}
+
+
+function FS({ label, val, set, opts, links }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+      <div style={{ fontSize: "9px", letterSpacing: "2px", color: MID, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+        <select value={val} onChange={e => set(e.target.value)} style={{ border: `2px solid ${INK}`, background: WH, padding: "6px 8px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "1px", cursor: "pointer", outline: "none", color: INK, textTransform: "uppercase" }}>
+          <option value="all">ALL</option>
+          {opts.map(o => <option key={o} value={o}>{o.toUpperCase()}</option>)}
+        </select>
+        {links?.[val] && val !== "all" && <a href={links[val]} target="_blank" rel="noopener noreferrer" style={{ fontSize: "18px", textDecoration: "none" }}>📍</a>}
+      </div>
+    </div>
+  );
+}
+
+function Label({ children }) {
+  return <div style={{ fontSize: "10px", letterSpacing: "3px", color: MID, marginBottom: "8px", textTransform: "uppercase" }}>{children}</div>;
+}
+
+function MapLnk({ href, children }) {
+  return <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: "10px", letterSpacing: "2px", textDecoration: "none", color: INK, textTransform: "uppercase", border: `1px solid ${INK}`, padding: "3px 8px", background: WH }}>{children} →</a>;
+}
+
+function Pill({ active, onClick, children, small }) {
+  return (
+    <button onClick={onClick} style={{ border: `1.5px solid ${INK}`, background: active ? INK : WH, color: active ? Y : INK, padding: small ? "5px 9px" : "4px 10px", fontFamily: "'Courier New',Courier,monospace", fontSize: "9px", letterSpacing: "1.5px", cursor: "pointer", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0, touchAction: "manipulation" }}>
+      {children}
+    </button>
+  );
+}
+
 function FR({ label, children, err }) {
   return (
     <div>
