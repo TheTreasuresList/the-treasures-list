@@ -5497,7 +5497,7 @@ function AdminPanel({ bp }) {
   const PER = 50;
   const px = bp.isMobile ? "12px" : "24px";
 
-  const BLANK = { name:"", type:"brick", category:"skate", status:"approved", city:"", state:"", country:"USA", address:"", phone:"", website:"", description:"", instagram:"", map_url:"" };
+  const BLANK = { name:"", type:"brick", category:"skate", status:"approved", city:"", state:"", country:"USA", address:"", phone:"", website:"", description:"", instagram:"", map_url:"", tags:[] };
   const INP_S = { border:`1.5px solid rgba(26,16,6,0.3)`, background:"white", padding:"7px 10px", fontFamily:"inherit", fontSize:"11px", color:INK, width:"100%", outline:"none" };
   const BTN = (bg, col) => ({ border:`2px solid ${INK}`, background:bg||"transparent", color:col||INK, padding:"7px 14px", fontFamily:"inherit", fontSize:"9px", letterSpacing:"2px", cursor:"pointer", textTransform:"uppercase" });
 
@@ -5505,7 +5505,7 @@ function AdminPanel({ bp }) {
   const load = async () => {
     setLoading(true);
     const { data } = await supabase.from("listings")
-      .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url,phone,address")
+      .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url,phone,address,tags")
       .order("name");
     setRows(data || []);
     setLoading(false);
@@ -5546,7 +5546,8 @@ function AdminPanel({ bp }) {
     setSaving(true); setSaveMsg("");
     const payload = { name:editing.name, category:editing.category, type:editing.type, status:editing.status,
       city:editing.city, state:editing.state, country:editing.country, address:editing.address||"",
-      phone:editing.phone||"", website:editing.website, description:editing.description, instagram:editing.instagram, map_url:editing.map_url||"" };
+      phone:editing.phone||"", website:editing.website, description:editing.description, instagram:editing.instagram, map_url:editing.map_url||"",
+      tags: editing.tags||[] };
     if (isNew) {
       const { data, error } = await supabase.from("listings").insert(payload).select().single();
       if (error) { setSaveMsg("Error: " + error.message); }
@@ -5579,6 +5580,40 @@ function AdminPanel({ bp }) {
   };
 
   const toggleSelect = (id) => setSelected(p => { const s=new Set(p); s.has(id)?s.delete(id):s.add(id); return s; });
+
+  // ── Bulk edit ────────────────────────────────────────────────────────────────
+  const [bulkCat, setBulkCat]   = useState("");
+  const [bulkTag, setBulkTag]   = useState("");
+  const [bulking, setBulking]   = useState(false);
+
+  const applyBulkCategory = async () => {
+    if (!bulkCat || !selected.size) return;
+    setBulking(true);
+    const ids = [...selected];
+    await supabase.from("listings").update({ category: bulkCat }).in("id", ids);
+    setRows(p => p.map(r => selected.has(r.id) ? { ...r, category: bulkCat } : r));
+    setBulkCat(""); setSelected(new Set()); setBulking(false);
+  };
+
+  const applyBulkTag = async () => {
+    if (!bulkTag || !selected.size) return;
+    setBulking(true);
+    const ids = [...selected];
+    // Add tag to each selected row without removing existing tags
+    for (const id of ids) {
+      const row = rows.find(r => r.id === id);
+      const existing = row?.tags || [];
+      if (!existing.includes(bulkTag)) {
+        await supabase.from("listings").update({ tags: [...existing, bulkTag] }).eq("id", id);
+      }
+    }
+    setRows(p => p.map(r => {
+      if (!selected.has(r.id)) return r;
+      const existing = r.tags || [];
+      return existing.includes(bulkTag) ? r : { ...r, tags: [...existing, bulkTag] };
+    }));
+    setBulkTag(""); setSelected(new Set()); setBulking(false);
+  };
   const toggleAll    = () => setSelected(p => p.size===paged.length ? new Set() : new Set(paged.map(r=>r.id)));
 
   // ── Submissions ──────────────────────────────────────────────────────────────
@@ -5662,6 +5697,15 @@ function AdminPanel({ bp }) {
                 <button onClick={deleteSelected} disabled={deleting} style={{ ...BTN("#c0392b", "white"), border:"2px solid #c0392b" }}>
                   {deleting ? "DELETING…" : `DELETE (${selected.size})`}
                 </button>
+              )}
+              {selected.size > 0 && (
+                <>
+                  <select value={bulkCat} onChange={e=>setBulkCat(e.target.value)} style={{ ...INP_S, width:"auto" }}>
+                    <option value="">Set category…</option>
+                    {Object.entries(ADMIN_CATS).map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
+                  </select>
+                  <button onClick={applyBulkCategory} disabled={!bulkCat||bulking} style={BTN(Y,INK)}>APPLY TO {selected.size}</button>
+                </>
               )}
               <button onClick={load} style={BTN()}>↻ REFRESH</button>
               <button onClick={openNew} style={BTN(INK, Y)}>+ NEW LISTING</button>
@@ -5847,6 +5891,20 @@ function AdminPanel({ bp }) {
               </FR>
               <FR label="DESCRIPTION">
                 <textarea value={editing.description||""} onChange={e=>setEditing(p=>({...p,description:e.target.value}))} style={{ ...INP_S, height:"90px", resize:"vertical" }} placeholder="1-2 sentence editorial description…" />
+              </FR>
+              <FR label="TAGS (secondary categories)">
+                <div style={{ display:"flex", flexWrap:"wrap", gap:"6px", marginBottom:"6px" }}>
+                  {(editing.tags||[]).map(tag=>(
+                    <span key={tag} style={{ background:INK, color:Y, padding:"3px 8px", fontSize:"9px", letterSpacing:"1px", display:"flex", alignItems:"center", gap:"4px" }}>
+                      {ADMIN_CATS[tag]||tag}
+                      <button onClick={()=>setEditing(p=>({...p,tags:(p.tags||[]).filter(t=>t!==tag)}))} style={{ border:"none", background:"transparent", color:Y, cursor:"pointer", fontSize:"12px", lineHeight:1, padding:0 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <select onChange={e=>{const v=e.target.value;if(v&&!(editing.tags||[]).includes(v))setEditing(p=>({...p,tags:[...(p.tags||[]),v]}));e.target.value="";}} style={{ ...INP_S, width:"auto" }}>
+                  <option value="">+ Add tag…</option>
+                  {Object.entries(ADMIN_CATS).filter(([id])=>id!==editing.category&&!(editing.tags||[]).includes(id)).map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
+                </select>
               </FR>
               <div style={{ display:"flex", gap:"10px", alignItems:"center", marginTop:"4px" }}>
                 <button onClick={saveEdit} disabled={saving} style={{ ...BTN(INK,Y), opacity:saving?0.6:1 }}>{saving?"SAVING…":"SAVE CHANGES"}</button>
