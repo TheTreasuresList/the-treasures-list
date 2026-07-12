@@ -1,4 +1,21 @@
 import { useState, useMemo, useEffect } from "react";
+import React from 'react';
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return React.createElement('div', {style:{padding:'40px',fontFamily:'Courier New',background:'#F0D800',minHeight:'100vh'}},
+        React.createElement('h2', null, 'CRASH:'),
+        React.createElement('pre', {style:{background:'white',padding:'20px',fontSize:'12px',whiteSpace:'pre-wrap'}},
+          this.state.error.toString() + '\n\n' + (this.state.error.stack||''))
+      );
+    }
+    return this.props.children;
+  }
+}
+
 import { supabase, fetchListings, signIn, signOut, getSession } from "./lib/supabase.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -4612,7 +4629,7 @@ const PER_PAGE = 20;
 // ══════════════════════════════════════════════════════════════════════════════
 // ROOT
 // ══════════════════════════════════════════════════════════════════════════════
-export default function App() {
+function AppInner() {
   const bp = useBreakpoint();
   const [listings,   setListings]   = useState(SAMPLE);
   const [loading,    setLoading]    = useState(true);
@@ -5732,4 +5749,8 @@ function AdminPanel({ bp }) {
       )}
     </div>
   );
+}
+
+export default function App() {
+  return React.createElement(ErrorBoundary, null, React.createElement(AppInner, null));
 }
