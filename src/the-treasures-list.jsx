@@ -5329,11 +5329,18 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
     } catch(e) { setAutofillErr(e.message); }
     setAutofilling(false);
   };
+  const [submitErr, setSubmitErr] = useState("");
   const submit = async () => {
+    setSubmitErr("");
     if (!validate()) return;
     setSubmitting(true);
-    await onSubmit({ ...f, type: formType });
-    setF(blank);
+    try {
+      await onSubmit({ ...f, type: formType });
+      setF(blank);
+      setMapsUrl("");
+    } catch(e) {
+      setSubmitErr(e.message || "Submission failed. Please try again.");
+    }
     setSubmitting(false);
   };
 
@@ -5408,8 +5415,14 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
           {SOCIALS.map(p => <FR key={p.id} label={p.label.toUpperCase()}><input value={f.socials[p.id] || ""} onChange={e => setSocial(p.id, e.target.value)} style={INP} placeholder="handle" /></FR>)}
         </div>
 
-        <button onClick={submit} disabled={submitting} style={{ border: `3px solid ${INK}`, opacity: submitting ? 0.6 : 1, background: INK, color: Y, padding: "15px", fontFamily: "inherit", fontSize: "13px", letterSpacing: "3px", cursor: "pointer", textTransform: "uppercase", marginTop: "8px", touchAction: "manipulation" }}>
-          SUBMIT FOR REVIEW →
+        {Object.keys(err).length > 0 && (
+          <div style={{ border:"1.5px solid #c0392b", padding:"10px", fontSize:"11px", color:"#c0392b" }}>
+            Please fill in: {Object.entries(err).map(([k,v])=>`${k} (${v})`).join(', ')}
+          </div>
+        )}
+        {submitErr && <div style={{ border:"1.5px solid #c0392b", padding:"10px", fontSize:"11px", color:"#c0392b" }}>{submitErr}</div>}
+        <button type="button" onClick={submit} disabled={submitting} style={{ border: `3px solid ${INK}`, opacity: submitting ? 0.6 : 1, background: INK, color: Y, padding: "15px", fontFamily: "inherit", fontSize: "13px", letterSpacing: "3px", cursor: submitting?"not-allowed":"pointer", textTransform: "uppercase", marginTop: "8px", touchAction: "manipulation", width:"100%" }}>
+          {submitting ? "SUBMITTING…" : "SUBMIT FOR REVIEW →"}
         </button>
         <p style={{ fontSize: "10px", color: MID, margin: 0, letterSpacing: "1px" }}>Listings are free. We review every submission for quality before publishing.</p>
       </div>
