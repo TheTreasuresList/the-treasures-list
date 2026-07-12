@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Treasures List — Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #F0D800;
+    font-family: 'Courier New', Courier, monospace;
+    color: #1A1006;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  /* HEADER */
+  .header {
+    border: 3px solid #1A1006;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    background: #1A1006;
+    color: #F0D800;
+  }
+  .header-title { font-size: 22px; font-weight: bold; letter-spacing: 0.08em; }
+  .header-sub { font-size: 11px; opacity: 0.7; margin-top: 4px; letter-spacing: 0.05em; }
+  .header-date { font-size: 11px; text-align: right; opacity: 0.6; }
+
+  /* GRID */
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+  /* CARDS */
+  .card {
+    border: 2.5px solid #1A1006;
+    background: #F0D800;
+    padding: 18px 20px;
+  }
+  .card-dark {
+    border: 2.5px solid #1A1006;
+    background: #1A1006;
+    color: #F0D800;
+    padding: 18px 20px;
+  }
+  .card-label {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0.6;
+    margin-bottom: 6px;
+  }
+  .card-value {
+    font-size: 36px;
+    font-weight: bold;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+  .card-sub {
+    font-size: 10px;
+    margin-top: 6px;
+    opacity: 0.55;
+    letter-spacing: 0.04em;
+  }
+
+  /* SECTION HEADERS */
+  .section-label {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: bold;
+    border-bottom: 2px solid #1A1006;
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+    margin-top: 20px;
+  }
+
+  /* PROGRESS BARS */
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .progress-label { font-size: 10px; width: 90px; flex-shrink: 0; letter-spacing: 0.04em; }
+  .progress-track {
+    flex: 1;
+    height: 14px;
+    background: rgba(26,16,6,0.12);
+    border: 1.5px solid #1A1006;
+    position: relative;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: #1A1006;
+    transition: width 0.4s ease;
+  }
+  .progress-pct { font-size: 10px; width: 32px; text-align: right; flex-shrink: 0; font-weight: bold; }
+
+  /* BAR CHART */
+  .bar-chart { }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .bar-name { font-size: 9px; width: 110px; flex-shrink: 0; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track {
+    flex: 1;
+    height: 16px;
+    background: rgba(26,16,6,0.08);
+    border: 1.5px solid #1A1006;
+    overflow: hidden;
+  }
+  .bar-fill { height: 100%; background: #1A1006; }
+  .bar-count { font-size: 9px; width: 38px; text-align: right; flex-shrink: 0; font-weight: bold; }
+
+  /* CITY DOT MAP */
+  .city-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .city-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(26,16,6,0.12);
+  }
+  .city-rank { font-size: 8px; opacity: 0.4; width: 14px; flex-shrink: 0; }
+  .city-name { font-size: 9px; flex: 1; letter-spacing: 0.02em; }
+  .city-count { font-size: 9px; font-weight: bold; }
+
+  /* COUNTRY TABLE */
+  .country-list {}
+  .country-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(26,16,6,0.12);
+    font-size: 10px;
+  }
+  .country-name { flex: 1; letter-spacing: 0.02em; }
+  .country-count { font-weight: bold; }
+  .country-bar-wrap { width: 80px; height: 8px; background: rgba(26,16,6,0.1); border: 1px solid rgba(26,16,6,0.3); overflow: hidden; }
+  .country-bar { height: 100%; background: #1A1006; }
+
+  /* STATUS PILL */
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    border: 1.5px solid currentColor;
+    text-transform: uppercase;
+    font-weight: bold;
+  }
+  .pill-pending { color: #1A1006; border-color: #1A1006; }
+
+  /* DATA HEALTH */
+  .health-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .health-card {
+    border: 2px solid #1A1006;
+    padding: 14px;
+    text-align: center;
+  }
+  .health-num { font-size: 28px; font-weight: bold; }
+  .health-label { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.55; margin-top: 4px; }
+  .health-missing { font-size: 9px; margin-top: 6px; opacity: 0.5; }
+
+  /* DIVIDER */
+  .divider { border: none; border-top: 2px solid #1A1006; margin: 20px 0; }
+
+  /* FOOTER */
+  .footer { font-size: 8px; letter-spacing: 0.08em; opacity: 0.45; text-align: center; margin-top: 24px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="header-title">THE TREASURES LIST</div>
+    <div class="header-sub">Global Directory of Independent Business for Creative Travelers</div>
+  </div>
+  <div class="header-date">Last updated: July 3, 2026<br>Status: ALL PENDING</div>
+</div>
+
+<!-- TOP STATS -->
+<div class="grid grid-4" style="margin-bottom:16px">
+  <div class="card-dark">
+    <div class="card-label" style="color:#F0D800;opacity:0.55">Total Entries</div>
+    <div class="card-value">4,694</div>
+    <div class="card-sub" style="color:#F0D800">All status: PENDING</div>
+  </div>
+  <div class="card">
+    <div class="card-label">City Tabs</div>
+    <div class="card-value">58</div>
+    <div class="card-sub">Cities with 10+ entries</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Countries</div>
+    <div class="card-value">40+</div>
+    <div class="card-sub">Global coverage</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Categories</div>
+    <div class="card-value">15</div>
+    <div class="card-sub">Skate · Vintage · Brands · More</div>
+  </div>
+</div>
+
+<!-- CATEGORIES + CITIES -->
+<div class="grid grid-2">
+
+  <!-- CATEGORY BREAKDOWN -->
+  <div class="card">
+    <div class="section-label">By Category</div>
+    <div class="bar-chart">
+      <div class="bar-row"><span class="bar-name">Skate Shops</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span class="bar-count">1,572</span></div>
+      <div class="bar-row"><span class="bar-name">Small Brands</span><div class="bar-track"><div class="bar-fill" style="width:59%"></div></div><span class="bar-count">928</span></div>
+      <div class="bar-row"><span class="bar-name">Moto &amp; Car</span><div class="bar-track"><div class="bar-fill" style="width:58%"></div></div><span class="bar-count">916</span></div>
+      <div class="bar-row"><span class="bar-name">Vintage &amp; Thrift</span><div class="bar-track"><div class="bar-fill" style="width:23%"></div></div><span class="bar-count">359</span></div>
+      <div class="bar-row"><span class="bar-name">Bars</span><div class="bar-track"><div class="bar-fill" style="width:10%"></div></div><span class="bar-count">161</span></div>
+      <div class="bar-row"><span class="bar-name">Food &amp; Bodegas</span><div class="bar-track"><div class="bar-fill" style="width:8%"></div></div><span class="bar-count">133</span></div>
+      <div class="bar-row"><span class="bar-name">Tattoo Shops</span><div class="bar-track"><div class="bar-fill" style="width:5%"></div></div><span class="bar-count">73</span></div>
+      <div class="bar-row"><span class="bar-name">Restaurants</span><div class="bar-track"><div class="bar-fill" style="width:4.6%"></div></div><span class="bar-count">72</span></div>
+      <div class="bar-row"><span class="bar-name">Art Galleries</span><div class="bar-track"><div class="bar-fill" style="width:4%"></div></div><span class="bar-count">63</span></div>
+      <div class="bar-row"><span class="bar-name">Diners</span><div class="bar-track"><div class="bar-fill" style="width:3.7%"></div></div><span class="bar-count">58</span></div>
+      <div class="bar-row"><span class="bar-name">Furniture</span><div class="bar-track"><div class="bar-fill" style="width:2%"></div></div><span class="bar-count">31</span></div>
+      <div class="bar-row"><span class="bar-name">Barbers</span><div class="bar-track"><div class="bar-fill" style="width:1.1%"></div></div><span class="bar-count">18</span></div>
+      <div class="bar-row"><span class="bar-name">Book Stores</span><div class="bar-track"><div class="bar-fill" style="width:0.7%"></div></div><span class="bar-count">11</span></div>
+      <div class="bar-row"><span class="bar-name">Uncategorized</span><div class="bar-track"><div class="bar-fill" style="width:15.8%;background:#b8a800"></div></div><span class="bar-count">249</span></div>
+    </div>
+  </div>
+
+  <!-- TOP CITIES -->
+  <div class="card">
+    <div class="section-label">Top Cities</div>
+    <div class="city-grid">
+      <div>
+        <div class="city-row"><span class="city-rank">01</span><span class="city-name">Los Angeles</span><span class="city-count">395</span></div>
+        <div class="city-row"><span class="city-rank">02</span><span class="city-name">Tokyo</span><span class="city-count">255</span></div>
+        <div class="city-row"><span class="city-rank">03</span><span class="city-name">New York</span><span class="city-count">177</span></div>
+        <div class="city-row"><span class="city-rank">04</span><span class="city-name">Mexico City</span><span class="city-count">69</span></div>
+        <div class="city-row"><span class="city-rank">05</span><span class="city-name">Portland</span><span class="city-count">49</span></div>
+        <div class="city-row"><span class="city-rank">06</span><span class="city-name">Orange County</span><span class="city-count">47</span></div>
+        <div class="city-row"><span class="city-rank">07</span><span class="city-name">Atlanta</span><span class="city-count">47</span></div>
+        <div class="city-row"><span class="city-rank">08</span><span class="city-name">Houston</span><span class="city-count">45</span></div>
+        <div class="city-row"><span class="city-rank">09</span><span class="city-name">San Diego</span><span class="city-count">45</span></div>
+        <div class="city-row"><span class="city-rank">10</span><span class="city-name">Seoul</span><span class="city-count">43</span></div>
+      </div>
+      <div>
+        <div class="city-row"><span class="city-rank">11</span><span class="city-name">Minneapolis</span><span class="city-count">42</span></div>
+        <div class="city-row"><span class="city-rank">12</span><span class="city-name">Chicago</span><span class="city-count">42</span></div>
+        <div class="city-row"><span class="city-rank">13</span><span class="city-name">Seattle</span><span class="city-count">41</span></div>
+        <div class="city-row"><span class="city-rank">14</span><span class="city-name">Austin</span><span class="city-count">41</span></div>
+        <div class="city-row"><span class="city-rank">15</span><span class="city-name">Osaka</span><span class="city-count">41</span></div>
+        <div class="city-row"><span class="city-rank">16</span><span class="city-name">San Francisco</span><span class="city-count">40</span></div>
+        <div class="city-row"><span class="city-rank">17</span><span class="city-name">Las Vegas</span><span class="city-count">37</span></div>
+        <div class="city-row"><span class="city-rank">18</span><span class="city-name">Detroit</span><span class="city-count">37</span></div>
+        <div class="city-row"><span class="city-rank">19</span><span class="city-name">Miami</span><span class="city-count">36</span></div>
+        <div class="city-row"><span class="city-rank">20</span><span class="city-name">Washington DC</span><span class="city-count">36</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- COUNTRIES + DATA HEALTH -->
+<div class="grid grid-2" style="margin-top:16px">
+
+  <!-- COUNTRIES -->
+  <div class="card">
+    <div class="section-label">By Country</div>
+    <div class="country-list">
+      <div class="country-row"><span class="country-name">USA</span><div class="country-bar-wrap"><div class="country-bar" style="width:100%"></div></div><span class="country-count">3,387</span></div>
+      <div class="country-row"><span class="country-name">Japan</span><div class="country-bar-wrap"><div class="country-bar" style="width:14%"></div></div><span class="country-count">479</span></div>
+      <div class="country-row"><span class="country-name">Canada</span><div class="country-bar-wrap"><div class="country-bar" style="width:5%"></div></div><span class="country-count">164</span></div>
+      <div class="country-row"><span class="country-name">UK</span><div class="country-bar-wrap"><div class="country-bar" style="width:2.4%"></div></div><span class="country-count">81</span></div>
+      <div class="country-row"><span class="country-name">Mexico</span><div class="country-bar-wrap"><div class="country-bar" style="width:2.2%"></div></div><span class="country-count">73</span></div>
+      <div class="country-row"><span class="country-name">South Korea</span><div class="country-bar-wrap"><div class="country-bar" style="width:1.7%"></div></div><span class="country-count">56</span></div>
+      <div class="country-row"><span class="country-name">France</span><div class="country-bar-wrap"><div class="country-bar" style="width:1.5%"></div></div><span class="country-count">51</span></div>
+      <div class="country-row"><span class="country-name">Australia</span><div class="country-bar-wrap"><div class="country-bar" style="width:1.5%"></div></div><span class="country-count">50</span></div>
+      <div class="country-row"><span class="country-name">Germany</span><div class="country-bar-wrap"><div class="country-bar" style="width:1.2%"></div></div><span class="country-count">40</span></div>
+      <div class="country-row"><span class="country-name">China</span><div class="country-bar-wrap"><div class="country-bar" style="width:1.1%"></div></div><span class="country-count">37</span></div>
+      <div class="country-row"><span class="country-name">Spain</span><div class="country-bar-wrap"><div class="country-bar" style="width:0.9%"></div></div><span class="country-count">30</span></div>
+      <div class="country-row"><span class="country-name">Italy</span><div class="country-bar-wrap"><div class="country-bar" style="width:0.8%"></div></div><span class="country-count">28</span></div>
+      <div class="country-row"><span class="country-name">Taiwan</span><div class="country-bar-wrap"><div class="country-bar" style="width:0.7%"></div></div><span class="country-count">22</span></div>
+      <div class="country-row"><span class="country-name">Netherlands</span><div class="country-bar-wrap"><div class="country-bar" style="width:0.6%"></div></div><span class="country-count">21</span></div>
+      <div class="country-row"><span class="country-name">Austria</span><div class="country-bar-wrap"><div class="country-bar" style="width:0.4%"></div></div><span class="country-count">15</span></div>
+    </div>
+  </div>
+
+  <!-- DATA HEALTH -->
+  <div class="card">
+    <div class="section-label">Data Completeness</div>
+    <div class="health-grid" style="margin-bottom:20px">
+      <div class="health-card">
+        <div class="health-num">69%</div>
+        <div class="health-label">Website</div>
+        <div class="health-missing">1,447 missing</div>
+      </div>
+      <div class="health-card">
+        <div class="health-num">49%</div>
+        <div class="health-label">Instagram</div>
+        <div class="health-missing">2,403 missing</div>
+      </div>
+      <div class="health-card">
+        <div class="health-num">68%</div>
+        <div class="health-label">Address</div>
+        <div class="health-missing">1,524 missing</div>
+      </div>
+    </div>
+
+    <div class="section-label" style="margin-top:0">Completeness by Field</div>
+    <div class="progress-row">
+      <span class="progress-label">Website</span>
+      <div class="progress-track"><div class="progress-fill" style="width:69%"></div></div>
+      <span class="progress-pct">69%</span>
+    </div>
+    <div class="progress-row">
+      <span class="progress-label">Address</span>
+      <div class="progress-track"><div class="progress-fill" style="width:68%"></div></div>
+      <span class="progress-pct">68%</span>
+    </div>
+    <div class="progress-row">
+      <span class="progress-label">Maps URL</span>
+      <div class="progress-track"><div class="progress-fill" style="width:95%"></div></div>
+      <span class="progress-pct">95%</span>
+    </div>
+    <div class="progress-row">
+      <span class="progress-label">Instagram</span>
+      <div class="progress-track"><div class="progress-fill" style="width:49%"></div></div>
+      <span class="progress-pct">49%</span>
+    </div>
+    <div class="progress-row">
+      <span class="progress-label">Description</span>
+      <div class="progress-track"><div class="progress-fill" style="width:8%;background:#b8a800"></div></div>
+      <span class="progress-pct">~8%</span>
+    </div>
+    <div class="progress-row">
+      <span class="progress-label">Status Reviewed</span>
+      <div class="progress-track"><div class="progress-fill" style="width:0%;background:#b8a800"></div></div>
+      <span class="progress-pct">0%</span>
+    </div>
+
+    <div style="margin-top:16px; padding:12px; border:1.5px dashed #1A1006; font-size:9px; line-height:1.7; letter-spacing:0.03em; opacity:0.7">
+      ⚠︎ 249 entries have no category assigned<br>
+      ⚠︎ 916 Harley-Davidson dealers skewing Moto &amp; Car count<br>
+      ⚠︎ ~8% of descriptions filled — biggest gap before launch
+    </div>
+  </div>
+</div>
+
+<!-- DATA SOURCES -->
+<div class="card" style="margin-top:16px">
+  <div class="section-label">Key Data Sources Completed</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:9px;line-height:1.8;letter-spacing:0.03em">
+    <div>
+      <strong style="font-size:8px;letter-spacing:0.1em;text-transform:uppercase;opacity:0.5">Brand Store Lists</strong><br>
+      Chrome Hearts (43 locations)<br>
+      BEAMS (59 locations)<br>
+      Comme des Garçons / DSM (61)<br>
+      Nike SB Global Retailers<br>
+      NB Numeric Stockists<br>
+      Slam Jam Brand Stockists<br>
+      Carhartt WIP / Stussy / BAPE
+    </div>
+    <div>
+      <strong style="font-size:8px;letter-spacing:0.1em;text-transform:uppercase;opacity:0.5">Directories</strong><br>
+      Skate Shop Day Directory (600+)<br>
+      Record Store Day (key cities)<br>
+      Harley-Davidson KML (922)<br>
+      Sci-Fi Fantasy Stockists<br>
+      Kapital / WTAPS Stockists<br>
+      Travis Scott Cactus Jack List<br>
+      GX1000 Call Log
+    </div>
+    <div>
+      <strong style="font-size:8px;letter-spacing:0.1em;text-transform:uppercase;opacity:0.5">Editorial Sources</strong><br>
+      Hypemaps NYC / Tokyo / Seoul / Paris<br>
+      Hypebeast Store Openings 2024-25<br>
+      Hypebeast Community Center<br>
+      SneakerNews / SneakerFreaker<br>
+      Google Maps CSV Exports (30+)<br>
+      Instagram Following Export (2,380)
+    </div>
+    <div>
+      <strong style="font-size:8px;letter-spacing:0.1em;text-transform:uppercase;opacity:0.5">Pending Sources</strong><br>
+      Hypemaps Bangkok / Hong Kong<br>
+      @nikesbornothing IG cross-ref<br>
+      RSD full store locator<br>
+      More Hypebeast editorial mining<br>
+      Google Maps API geocoding<br>
+      Vercel deployment + domain<br>
+      Description copywriting
+    </div>
+  </div>
+</div>
+
+<div class="footer" style="margin-top:20px">
+  The Treasures List  ·  4,694 entries  ·  58 city tabs  ·  40+ countries  ·  All status: PENDING  ·  Anti-algorithm · Anti-chain
+</div>
+
+</body>
+</html>
