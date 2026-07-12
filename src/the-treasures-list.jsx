@@ -5916,10 +5916,16 @@ function AdminPanel({ bp }) {
                   {Object.entries(ADMIN_CATS).filter(([id])=>id!==editing.category&&!(editing.tags||[]).includes(id)).map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
                 </select>
               </FR>
-              <div style={{ display:"flex", gap:"10px", alignItems:"center", marginTop:"4px" }}>
+              <div style={{ display:"flex", gap:"10px", alignItems:"center", marginTop:"4px", flexWrap:"wrap" }}>
                 <button onClick={saveEdit} disabled={saving} style={{ ...BTN(INK,Y), opacity:saving?0.6:1 }}>{saving?"SAVING…":"SAVE CHANGES"}</button>
+                {editing.status !== "approved" && (
+                  <button onClick={async()=>{setEditing(p=>({...p,status:"approved"}));setSaving(true);await supabase.from("listings").update({status:"approved"}).eq("id",editing.id);setRows(p=>p.map(r=>r.id===editing.id?{...r,status:"approved"}:r));setSaving(false);setSaveMsg("Approved ✓");setTimeout(()=>{setSaveMsg("");setEditing(null);},1200);}} style={{ ...BTN("green","white"), border:"2px solid green" }}>✓ APPROVE</button>
+                )}
+                {editing.status !== "rejected" && (
+                  <button onClick={async()=>{setSaving(true);await supabase.from("listings").update({status:"rejected"}).eq("id",editing.id);setRows(p=>p.map(r=>r.id===editing.id?{...r,status:"rejected"}:r));setSaving(false);setSaveMsg("Rejected");setTimeout(()=>{setSaveMsg("");setEditing(null);},1200);}} style={{ ...BTN(), border:"2px solid #c0392b", color:"#c0392b" }}>✗ REJECT</button>
+                )}
                 <button onClick={()=>setEditing(null)} style={BTN()}>CANCEL</button>
-                {saveMsg && <span style={{ fontSize:"11px", color:saveMsg.startsWith("Error")?"#c0392b":"green", letterSpacing:"1px" }}>{saveMsg}</span>}
+                {saveMsg && <span style={{ fontSize:"11px", color:saveMsg.startsWith("Error")?"#c0392b":saveMsg==="Rejected"?"#c0392b":"green", letterSpacing:"1px" }}>{saveMsg}</span>}
               </div>
             </div>
           </div>
