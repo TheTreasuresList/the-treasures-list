@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { fetchListings } from "./lib/supabase.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
 const Y   = "#F0D800";
@@ -4613,6 +4614,7 @@ const PER_PAGE = 20;
 export default function App() {
   const bp = useBreakpoint();
   const [listings,   setListings]   = useState(SAMPLE);
+  const [loading,    setLoading]    = useState(true);
   const [mode,       setMode]       = useState("brick");
   const [activeCat,  setActiveCat]  = useState("all");
   const [search,     setSearch]     = useState("");
@@ -4633,6 +4635,14 @@ export default function App() {
   const [onlineCats, setOnlineCats] = useState(ONLINE_CATS);
 
   useEffect(() => { setActiveCat("all"); setActiveCity("all"); setActiveSt("all"); setActiveLetter("all"); setPage(1); }, [mode]);
+
+  // Fetch live data from Supabase on mount — falls back to SAMPLE if unavailable
+  useEffect(() => {
+    fetchListings().then(data => {
+      if (data && data.length > 0) setListings(data);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
   useEffect(() => { setPage(1); }, [search, activeCat, activeCity, activeSt, perPage, activeLetter]);
   useEffect(() => {
     const fn = e => { if (e.key === "Escape") setModal(null); };
@@ -4742,7 +4752,7 @@ export default function App() {
 
       <main style={{ paddingBottom: bp.isMobile ? "80px" : "0" }}>
         {tab === "directory" && <>
-          <DirView bp={bp} filtered={filtered} paged={paged} page={page} total={totalPages}
+          <DirView bp={bp} filtered={filtered} paged={paged} page={page} total={totalPages} loading={loading}
             setPage={setPage} onSelect={setModal} saved={saved} onSave={toggleSave}
             cats={activeCats} mode={mode} activeCity={activeCity} activeSt={activeSt} />
           {!hasFilters && <BestOfLinks bp={bp} pages={bestOf} onNav={(cat, city) => { setActiveCat(cat); setActiveCity(city); setMode("brick"); }} />}
@@ -4945,13 +4955,13 @@ function FilterDrawer({ onClose, activeCat, setActiveCat, activeCats, activeCity
 // ══════════════════════════════════════════════════════════════════════════════
 // DIRECTORY VIEW
 // ══════════════════════════════════════════════════════════════════════════════
-function DirView({ bp, filtered, paged, page, total, setPage, onSelect, saved, onSave, cats, mode, activeCity, activeSt, emptyMsg }) {
+function DirView({ bp, filtered, paged, page, total, setPage, onSelect, saved, onSave, cats, mode, activeCity, activeSt, emptyMsg, loading }) {
   const px   = bp.isMobile ? "12px" : "40px";
   const cols = bp.isMobile ? 1 : bp.isTablet ? 2 : 3;
   return (
     <>
       <div style={{ padding: `8px ${px}`, fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", borderBottom: `1px solid rgba(26,16,6,0.18)`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px" }}>
-        <span style={{ color: INK, fontWeight: "bold" }}>{filtered.length} LISTING{filtered.length !== 1 ? "S" : ""}<span style={{ fontWeight: "normal", color: MID, marginLeft: "8px" }}>— {mode === "brick" ? "BRICK & MORTAR" : "ONLINE ONLY"}</span></span>
+        <span style={{ color: INK, fontWeight: "bold" }}>{loading ? "LOADING…" : `${filtered.length} LISTING${filtered.length !== 1 ? "S" : ""}`}<span style={{ fontWeight: "normal", color: MID, marginLeft: "8px" }}>— {mode === "brick" ? "BRICK & MORTAR" : "ONLINE ONLY"}</span></span>
         <div style={{ display: "flex", gap: "8px" }}>
           {activeCity !== "all" && CITY_MAPS[activeCity] && <MapLnk href={CITY_MAPS[activeCity]}>📍 {activeCity.toUpperCase()}</MapLnk>}
           {activeSt   !== "all" && STATE_MAPS[activeSt]  && activeCity === "all" && <MapLnk href={STATE_MAPS[activeSt]}>📍 {activeSt.toUpperCase()}</MapLnk>}
