@@ -5483,36 +5483,49 @@ function AdminPanel({ bp }) {
   const [search, setSearch]       = useState("");
   const [catFilter, setCatFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("approved");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage]           = useState(1);
-  const [editing, setEditing]     = useState(null); // listing being edited
+  const [editing, setEditing]     = useState(null);
+  const [isNew, setIsNew]         = useState(false);
   const [saving, setSaving]       = useState(false);
   const [saveMsg, setSaveMsg]     = useState("");
+  const [selected, setSelected]   = useState(new Set());
+  const [deleting, setDeleting]   = useState(false);
   const [submissions, setSubmissions] = useState([]);
+  const [categories, setCategories]   = useState([]);
+  const [editCat, setEditCat]     = useState(null);
   const PER = 50;
   const px = bp.isMobile ? "12px" : "24px";
 
+  const BLANK = { name:"", type:"brick", category:"skate", status:"approved", city:"", state:"", country:"USA", address:"", phone:"", website:"", description:"", instagram:"", map_url:"" };
+  const INP_S = { border:`1.5px solid rgba(26,16,6,0.3)`, background:"white", padding:"7px 10px", fontFamily:"inherit", fontSize:"11px", color:INK, width:"100%", outline:"none" };
+  const BTN = (bg, col) => ({ border:`2px solid ${INK}`, background:bg||"transparent", color:col||INK, padding:"7px 14px", fontFamily:"inherit", fontSize:"9px", letterSpacing:"2px", cursor:"pointer", textTransform:"uppercase" });
+
+  // ── Data loaders ────────────────────────────────────────────────────────────
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("listings")
-      .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url")
+    const { data } = await supabase.from("listings")
+      .select("id,name,type,category,status,city,state,country,website,description,instagram,map_url,phone,address")
       .order("name");
     setRows(data || []);
     setLoading(false);
   };
 
   const loadSubs = async () => {
-    const { data } = await supabase
-      .from("submissions")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data } = await supabase.from("submissions").select("*").order("created_at", { ascending: false });
     setSubmissions(data || []);
+  };
+
+  const loadCats = async () => {
+    const { data } = await supabase.from("categories").select("*").order("sort_order");
+    setCategories(data || []);
   };
 
   useEffect(() => { load(); }, []);
   useEffect(() => { if (adminTab === "submissions") loadSubs(); }, [adminTab]);
+  useEffect(() => { if (adminTab === "categories") loadCats(); }, [adminTab]);
 
+  // ── Filtering ────────────────────────────────────────────────────────────────
   const filtered = rows.filter(r => {
     const q = search.toLowerCase();
     if (q && !r.name.toLowerCase().includes(q) && !(r.city||"").toLowerCase().includes(q)) return false;
@@ -5524,130 +5537,182 @@ function AdminPanel({ bp }) {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER));
   const paged = filtered.slice((page-1)*PER, page*PER);
 
-  const openEdit = r => setEditing({ ...r, instagram: r.instagram || "", website: r.website || "", description: r.description || "" });
+  // ── Edit / New ───────────────────────────────────────────────────────────────
+  const openNew  = () => { setEditing({ ...BLANK }); setIsNew(true); setSaveMsg(""); };
+  const openEdit = r  => { setEditing({ ...r, instagram: r.instagram||"", website: r.website||"", description: r.description||"", map_url: r.map_url||"" }); setIsNew(false); setSaveMsg(""); };
 
   const saveEdit = async () => {
     if (!editing) return;
     setSaving(true); setSaveMsg("");
-    const { error } = await supabase.from("listings").update({
-      name:        editing.name,
-      category:    editing.category,
-      type:        editing.type,
-      status:      editing.status,
-      city:        editing.city,
-      state:       editing.state,
-      country:     editing.country,
-      website:     editing.website,
-      description: editing.description,
-      instagram:   editing.instagram,
-    }).eq("id", editing.id);
-    if (error) { setSaveMsg("Error: " + error.message); }
-    else {
-      setSaveMsg("Saved ✓");
-      setRows(p => p.map(r => r.id === editing.id ? { ...r, ...editing } : r));
-      setTimeout(() => { setSaveMsg(""); setEditing(null); }, 1200);
+    const payload = { name:editing.name, category:editing.category, type:editing.type, status:editing.status,
+      city:editing.city, state:editing.state, country:editing.country, address:editing.address||"",
+      phone:editing.phone||"", website:editing.website, description:editing.description, instagram:editing.instagram, map_url:editing.map_url||"" };
+    if (isNew) {
+      const { data, error } = await supabase.from("listings").insert(payload).select().single();
+      if (error) { setSaveMsg("Error: " + error.message); }
+      else { setSaveMsg("Created ✓"); setRows(p => [...p, data].sort((a,b)=>a.name.localeCompare(b.name))); setTimeout(()=>{setSaveMsg("");setEditing(null);},1200); }
+    } else {
+      const { error } = await supabase.from("listings").update(payload).eq("id", editing.id);
+      if (error) { setSaveMsg("Error: " + error.message); }
+      else { setSaveMsg("Saved ✓"); setRows(p => p.map(r => r.id===editing.id?{...r,...payload}:r)); setTimeout(()=>{setSaveMsg("");setEditing(null);},1200); }
     }
     setSaving(false);
   };
 
+  // ── Delete ───────────────────────────────────────────────────────────────────
+  const deleteOne = async (id) => {
+    if (!confirm("Delete this listing?")) return;
+    await supabase.from("listings").delete().eq("id", id);
+    setRows(p => p.filter(r => r.id !== id));
+    setEditing(null);
+  };
+
+  const deleteSelected = async () => {
+    if (!selected.size) return;
+    if (!confirm(`Delete ${selected.size} listing${selected.size>1?"s":""}?`)) return;
+    setDeleting(true);
+    const ids = [...selected];
+    await supabase.from("listings").delete().in("id", ids);
+    setRows(p => p.filter(r => !selected.has(r.id)));
+    setSelected(new Set());
+    setDeleting(false);
+  };
+
+  const toggleSelect = (id) => setSelected(p => { const s=new Set(p); s.has(id)?s.delete(id):s.add(id); return s; });
+  const toggleAll    = () => setSelected(p => p.size===paged.length ? new Set() : new Set(paged.map(r=>r.id)));
+
+  // ── Submissions ──────────────────────────────────────────────────────────────
   const approveSub = async (sub) => {
-    const d = sub.submitted_data;
+    const d = sub.submitted_data || {};
     const { error } = await supabase.from("listings").insert({
-      name: d.name, type: d.type || "brick", category: d.category || "brand",
-      status: "approved", city: d.city || "", state: d.state || "",
-      country: d.country || "", website: d.website || "",
-      description: d.desc || "", instagram: d.instagram || "", source: "submission"
+      name:d.name||"Untitled", type:d.type||"brick", category:d.category||"brand",
+      status:"approved", city:d.city||"", state:d.state||"", country:d.country||"",
+      website:d.website||"", description:d.desc||"", instagram:d.socials?.instagram||"", source:"submission"
     });
     if (!error) {
-      await supabase.from("submissions").update({ status: "approved" }).eq("id", sub.id);
+      await supabase.from("submissions").update({ status:"approved" }).eq("id", sub.id);
       loadSubs(); load();
     }
   };
 
   const rejectSub = async (id) => {
-    await supabase.from("submissions").update({ status: "rejected" }).eq("id", id);
+    await supabase.from("submissions").update({ status:"rejected" }).eq("id", id);
     loadSubs();
   };
 
-  const INP_S = { border: `1.5px solid rgba(26,16,6,0.3)`, background: "white", padding: "7px 10px", fontFamily: "inherit", fontSize: "11px", color: INK, width: "100%", outline: "none" };
-  const TAB_BTN = (id, lbl) => (
-    <button key={id} onClick={() => setAdminTab(id)} style={{ border: `2px solid ${INK}`, background: adminTab===id?INK:"transparent", color: adminTab===id?Y:INK, padding: "8px 14px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>{lbl}</button>
+  // ── Categories ───────────────────────────────────────────────────────────────
+  const saveCat = async () => {
+    if (!editCat) return;
+    if (editCat._new) {
+      const { error } = await supabase.from("categories").insert({ id:editCat.id, label:editCat.label, icon:editCat.icon||"✦", type:editCat.type||"both", sort_order:editCat.sort_order||99 });
+      if (!error) { setEditCat(null); loadCats(); }
+    } else {
+      await supabase.from("categories").update({ label:editCat.label, icon:editCat.icon, type:editCat.type, sort_order:editCat.sort_order }).eq("id", editCat.id);
+      setEditCat(null); loadCats();
+    }
+  };
+  const deleteCat = async (id) => {
+    if (!confirm(`Delete category "${id}"? Listings using it will lose their category.`)) return;
+    await supabase.from("categories").delete().eq("id", id);
+    loadCats();
+  };
+
+  // ── Tab button helper ────────────────────────────────────────────────────────
+  const TAB = (id, lbl) => (
+    <button key={id} onClick={()=>{setAdminTab(id);setSelected(new Set());}} style={{ border:`2px solid ${INK}`, background:adminTab===id?INK:"transparent", color:adminTab===id?Y:INK, padding:"8px 14px", fontFamily:"inherit", fontSize:"9px", letterSpacing:"2px", cursor:"pointer", textTransform:"uppercase" }}>{lbl}</button>
   );
 
   return (
-    <div style={{ maxWidth: "1100px", margin: "0 auto", padding: `20px ${px}` }}>
+    <div style={{ maxWidth:"1200px", margin:"0 auto", padding:`20px ${px}` }}>
+
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "10px" }}>
-        <h2 style={{ fontFamily: "'Georgia',serif", fontSize: "24px", fontWeight: 900, color: INK, margin: 0 }}>
-          Admin — The Treasures List
-        </h2>
-        <div style={{ display: "flex", gap: "0" }}>
-          {TAB_BTN("listings", `Listings (${rows.length})`)}
-          {TAB_BTN("submissions", `Submissions (${submissions.length})`)}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px", flexWrap:"wrap", gap:"10px" }}>
+        <h2 style={{ fontFamily:"'Georgia',serif", fontSize:"22px", fontWeight:900, color:INK, margin:0 }}>Admin — The Treasures List</h2>
+        <div style={{ display:"flex", gap:"0" }}>
+          {TAB("listings", `Listings (${rows.length})`)}
+          {TAB("submissions", `Submissions (${submissions.length})`)}
+          {TAB("categories", `Categories`)}
         </div>
       </div>
 
-      {/* ── LISTINGS TAB ──────────────────────────────────────────────── */}
+      {/* ── LISTINGS TAB ──────────────────────────────────────────────────────── */}
       {adminTab === "listings" && (
         <div>
-          {/* Filters */}
-          <div style={{ display: "flex", gap: "8px", marginBottom: "14px", flexWrap: "wrap", alignItems: "center" }}>
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search name or city…" style={{ ...INP_S, width: "220px" }} />
-            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} style={{ ...INP_S, width: "auto" }}>
+          {/* Toolbar */}
+          <div style={{ display:"flex", gap:"8px", marginBottom:"12px", flexWrap:"wrap", alignItems:"center" }}>
+            <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Search name or city…" style={{ ...INP_S, width:"200px" }} />
+            <select value={typeFilter} onChange={e=>{setTypeFilter(e.target.value);setPage(1);}} style={{ ...INP_S, width:"auto" }}>
+              <option value="all">All types</option>
+              <option value="brick">B&amp;M</option>
+              <option value="online">Online</option>
+            </select>
+            <select value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(1);}} style={{ ...INP_S, width:"auto" }}>
               <option value="all">All statuses</option>
               <option value="approved">Approved</option>
               <option value="pending">Pending</option>
               <option value="rejected">Rejected</option>
             </select>
-            <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }} style={{ ...INP_S, width: "auto" }}>
-              <option value="all">All types</option>
-              <option value="brick">B&M</option>
-              <option value="online">Online</option>
-            </select>
-            <select value={catFilter} onChange={e => { setCatFilter(e.target.value); setPage(1); }} style={{ ...INP_S, width: "auto" }}>
+            <select value={catFilter} onChange={e=>{setCatFilter(e.target.value);setPage(1);}} style={{ ...INP_S, width:"auto" }}>
               <option value="all">All categories</option>
-              {Object.entries(ADMIN_CATS).map(([id,lbl]) => <option key={id} value={id}>{lbl}</option>)}
+              {Object.entries(ADMIN_CATS).map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
             </select>
-            <span style={{ fontSize: "10px", letterSpacing: "1px", color: MID }}>{filtered.length} results</span>
-            <button onClick={load} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "7px 12px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer" }}>↻ REFRESH</button>
+            <span style={{ fontSize:"10px", color:MID, letterSpacing:"1px" }}>{filtered.length} results</span>
+            <div style={{ marginLeft:"auto", display:"flex", gap:"8px" }}>
+              {selected.size > 0 && (
+                <button onClick={deleteSelected} disabled={deleting} style={{ ...BTN("#c0392b", "white"), border:"2px solid #c0392b" }}>
+                  {deleting ? "DELETING…" : `DELETE (${selected.size})`}
+                </button>
+              )}
+              <button onClick={load} style={BTN()}>↻ REFRESH</button>
+              <button onClick={openNew} style={BTN(INK, Y)}>+ NEW LISTING</button>
+            </div>
           </div>
 
           {/* Table */}
           {loading ? (
-            <div style={{ padding: "40px", textAlign: "center", fontSize: "11px", letterSpacing: "2px", color: MID }}>LOADING…</div>
+            <div style={{ padding:"60px", textAlign:"center", fontSize:"11px", letterSpacing:"2px", color:MID }}>LOADING…</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", fontFamily: "inherit" }}>
+            <div style={{ overflowX:"auto", border:`1px solid rgba(26,16,6,0.15)` }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"11px", fontFamily:"inherit" }}>
                 <thead>
-                  <tr style={{ background: INK, color: Y }}>
-                    {["NAME","CATEGORY","TYPE","STATUS","CITY","DESC",""].map(h => (
-                      <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontSize: "8px", letterSpacing: "2px", fontWeight: "normal", whiteSpace: "nowrap" }}>{h}</th>
+                  <tr style={{ background:INK, color:Y }}>
+                    <th style={{ padding:"8px 10px", width:"32px" }}>
+                      <input type="checkbox" checked={selected.size===paged.length&&paged.length>0} onChange={toggleAll} style={{ cursor:"pointer" }} />
+                    </th>
+                    {["NAME","CATEGORY","TYPE","STATUS","CITY","DESCRIPTION",""].map(h=>(
+                      <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:"8px", letterSpacing:"2px", fontWeight:"normal", whiteSpace:"nowrap" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {paged.map((r, i) => (
-                    <tr key={r.id} style={{ background: i%2===0?"white":"rgba(240,216,0,0.08)", borderBottom: "1px solid rgba(26,16,6,0.08)" }}>
-                      <td style={{ padding: "7px 10px", maxWidth: "200px" }}>
-                        <div style={{ fontWeight: "bold", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-                        {r.website && <div style={{ fontSize: "9px", color: MID, marginTop: "1px" }}>{r.website}</div>}
+                  {paged.map((r,i)=>(
+                    <tr key={r.id} style={{ background:selected.has(r.id)?"rgba(240,216,0,0.25)":i%2===0?"white":"rgba(240,216,0,0.06)", borderBottom:"1px solid rgba(26,16,6,0.08)" }}>
+                      <td style={{ padding:"6px 10px" }}>
+                        <input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSelect(r.id)} style={{ cursor:"pointer" }} />
                       </td>
-                      <td style={{ padding: "7px 10px", color: MID, whiteSpace: "nowrap" }}>{ADMIN_CATS[r.category] || r.category}</td>
-                      <td style={{ padding: "7px 10px", color: MID, whiteSpace: "nowrap" }}>{r.type}</td>
-                      <td style={{ padding: "7px 10px" }}>
-                        <span style={{ fontSize: "8px", letterSpacing: "1px", padding: "2px 6px", background: r.status==="approved"?"#1a1006":r.status==="pending"?"#F0D800":"rgba(26,16,6,0.1)", color: r.status==="approved"?"#F0D800":r.status==="pending"?"#1a1006":MID }}>{r.status?.toUpperCase()}</span>
+                      <td style={{ padding:"6px 10px", maxWidth:"180px" }}>
+                        <div style={{ fontWeight:"bold", color:INK, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                        {r.website && <div style={{ fontSize:"9px", color:MID }}>{r.website}</div>}
                       </td>
-                      <td style={{ padding: "7px 10px", color: MID, whiteSpace: "nowrap" }}>{[r.city, r.state].filter(Boolean).join(", ")}</td>
-                      <td style={{ padding: "7px 10px", maxWidth: "180px" }}>
-                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r.description ? INK : "rgba(26,16,6,0.25)", fontStyle: r.description ? "normal" : "italic" }}>
-                          {r.description || "No description"}
+                      <td style={{ padding:"6px 10px", color:MID, whiteSpace:"nowrap" }}>{ADMIN_CATS[r.category]||r.category}</td>
+                      <td style={{ padding:"6px 10px", color:MID, whiteSpace:"nowrap" }}>{r.type}</td>
+                      <td style={{ padding:"6px 10px" }}>
+                        <span style={{ fontSize:"8px", letterSpacing:"1px", padding:"2px 6px", background:r.status==="approved"?INK:r.status==="pending"?Y:"rgba(26,16,6,0.1)", color:r.status==="approved"?Y:r.status==="pending"?INK:MID }}>{(r.status||"").toUpperCase()}</span>
+                      </td>
+                      <td style={{ padding:"6px 10px", color:MID, whiteSpace:"nowrap" }}>{[r.city,r.state].filter(Boolean).join(", ")}</td>
+                      <td style={{ padding:"6px 10px", maxWidth:"200px" }}>
+                        <div style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:r.description?INK:"rgba(26,16,6,0.25)", fontStyle:r.description?"normal":"italic" }}>
+                          {r.description||"No description"}
                         </div>
                       </td>
-                      <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
-                        <button onClick={() => openEdit(r)} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "4px 10px", fontFamily: "inherit", fontSize: "8px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>EDIT</button>
+                      <td style={{ padding:"6px 10px", whiteSpace:"nowrap" }}>
+                        <button onClick={()=>openEdit(r)} style={{ ...BTN(), padding:"4px 10px", fontSize:"8px" }}>EDIT</button>
                       </td>
                     </tr>
                   ))}
+                  {paged.length === 0 && (
+                    <tr><td colSpan={8} style={{ padding:"40px", textAlign:"center", color:MID, fontSize:"10px", letterSpacing:"2px" }}>NO LISTINGS MATCH</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -5655,43 +5720,43 @@ function AdminPanel({ bp }) {
 
           {/* Paginator */}
           {totalPages > 1 && (
-            <div style={{ display: "flex", gap: "4px", marginTop: "14px", alignItems: "center", flexWrap: "wrap" }}>
-              <button onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "5px 10px", fontFamily: "inherit", fontSize: "9px", cursor: "pointer" }}>← PREV</button>
-              {Array.from({length: Math.min(totalPages,7)},(_,i)=>{
-                const pg = totalPages<=7?i+1:page<=4?i+1:page>=totalPages-3?totalPages-6+i:page-3+i;
-                return <button key={pg} onClick={()=>setPage(pg)} style={{ border:`1.5px solid ${INK}`, background:pg===page?INK:"transparent", color:pg===page?Y:INK, padding:"5px 8px", fontFamily:"inherit", fontSize:"9px", cursor:"pointer" }}>{pg}</button>;
+            <div style={{ display:"flex", gap:"4px", marginTop:"12px", alignItems:"center", flexWrap:"wrap" }}>
+              <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1} style={{ ...BTN(), padding:"5px 10px" }}>← PREV</button>
+              {Array.from({length:Math.min(totalPages,7)},(_,i)=>{
+                const pg=totalPages<=7?i+1:page<=4?i+1:page>=totalPages-3?totalPages-6+i:page-3+i;
+                return <button key={pg} onClick={()=>setPage(pg)} style={{ ...BTN(pg===page?INK:"transparent", pg===page?Y:INK), padding:"5px 8px" }}>{pg}</button>;
               })}
-              <button onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "5px 10px", fontFamily: "inherit", fontSize: "9px", cursor: "pointer" }}>NEXT →</button>
-              <span style={{ fontSize: "9px", color: MID, marginLeft: "8px" }}>PAGE {page} OF {totalPages}</span>
+              <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages} style={{ ...BTN(), padding:"5px 10px" }}>NEXT →</button>
+              <span style={{ fontSize:"9px", color:MID, marginLeft:"8px" }}>PAGE {page} OF {totalPages}</span>
             </div>
           )}
         </div>
       )}
 
-      {/* ── SUBMISSIONS TAB ───────────────────────────────────────────── */}
+      {/* ── SUBMISSIONS TAB ─────────────────────────────────────────────────── */}
       {adminTab === "submissions" && (
         <div>
+          <button onClick={loadSubs} style={{ ...BTN(), marginBottom:"12px" }}>↻ REFRESH</button>
           {submissions.length === 0 ? (
-            <div style={{ padding: "60px", textAlign: "center", fontSize: "11px", letterSpacing: "2px", color: MID, border: `1px dashed rgba(26,16,6,0.2)` }}>NO SUBMISSIONS YET</div>
-          ) : submissions.map(sub => (
-            <div key={sub.id} style={{ border: `1px solid ${INK}`, padding: "16px", marginBottom: "10px", background: sub.status==="pending"?Y:"white" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
-                <div style={{ flex: 1, minWidth: "200px" }}>
-                  <div style={{ fontWeight: "bold", fontSize: "15px", color: INK, marginBottom: "4px" }}>{sub.submitted_data?.name || "Unnamed"}</div>
-                  <div style={{ fontSize: "9px", letterSpacing: "1px", color: MID, textTransform: "uppercase", marginBottom: "6px" }}>
-                    {sub.submitted_data?.category} · {sub.submitted_data?.city} · {new Date(sub.created_at).toLocaleDateString()}
+            <div style={{ padding:"60px", textAlign:"center", fontSize:"11px", letterSpacing:"2px", color:MID, border:`1px dashed rgba(26,16,6,0.2)` }}>NO SUBMISSIONS YET</div>
+          ) : submissions.map(sub=>(
+            <div key={sub.id} style={{ border:`1px solid ${INK}`, padding:"16px", marginBottom:"10px", background:sub.status==="pending"?Y:"white" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:"10px" }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:"bold", fontSize:"15px", color:INK, marginBottom:"4px" }}>{sub.submitted_data?.name||"Unnamed"}</div>
+                  <div style={{ fontSize:"9px", letterSpacing:"1px", color:MID, textTransform:"uppercase", marginBottom:"6px" }}>
+                    {sub.submitted_data?.category} · {sub.submitted_data?.city} · {sub.submitted_data?.country} · {new Date(sub.created_at).toLocaleDateString()}
                   </div>
-                  {sub.submitted_data?.desc && <div style={{ fontSize: "11px", color: INK, lineHeight: 1.6 }}>{sub.submitted_data.desc}</div>}
-                  {sub.submitter_email && <div style={{ fontSize: "9px", color: MID, marginTop: "4px" }}>From: {sub.submitter_email}</div>}
+                  {sub.submitted_data?.desc && <div style={{ fontSize:"11px", color:INK, lineHeight:1.6 }}>{sub.submitted_data.desc}</div>}
+                  {sub.submitter_email && <div style={{ fontSize:"9px", color:MID, marginTop:"4px" }}>From: {sub.submitter_email}</div>}
                 </div>
-                {sub.status === "pending" && (
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <button onClick={() => approveSub(sub)} style={{ border: `2px solid ${INK}`, background: INK, color: Y, padding: "8px 16px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>APPROVE</button>
-                    <button onClick={() => rejectSub(sub.id)} style={{ border: `2px solid ${RED}`, background: "transparent", color: RED, padding: "8px 16px", fontFamily: "inherit", fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>REJECT</button>
+                {sub.status==="pending" ? (
+                  <div style={{ display:"flex", gap:"8px" }}>
+                    <button onClick={()=>approveSub(sub)} style={BTN(INK,Y)}>APPROVE</button>
+                    <button onClick={()=>rejectSub(sub.id)} style={{ ...BTN(), border:`2px solid #c0392b`, color:"#c0392b" }}>REJECT</button>
                   </div>
-                )}
-                {sub.status !== "pending" && (
-                  <span style={{ fontSize: "9px", letterSpacing: "2px", color: sub.status==="approved"?"green":RED, textTransform: "uppercase" }}>{sub.status}</span>
+                ) : (
+                  <span style={{ fontSize:"9px", letterSpacing:"2px", color:sub.status==="approved"?"green":"#c0392b", textTransform:"uppercase" }}>{sub.status}</span>
                 )}
               </div>
             </div>
@@ -5699,57 +5764,126 @@ function AdminPanel({ bp }) {
         </div>
       )}
 
-      {/* ── EDIT MODAL ────────────────────────────────────────────────── */}
+      {/* ── CATEGORIES TAB ──────────────────────────────────────────────────── */}
+      {adminTab === "categories" && (
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
+            <span style={{ fontSize:"10px", color:MID, letterSpacing:"1px" }}>{categories.length} categories</span>
+            <button onClick={()=>setEditCat({_new:true, id:"", label:"", icon:"✦", type:"both", sort_order:99})} style={BTN(INK,Y)}>+ NEW CATEGORY</button>
+          </div>
+          <div style={{ overflowX:"auto", border:`1px solid rgba(26,16,6,0.15)` }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"11px", fontFamily:"inherit" }}>
+              <thead>
+                <tr style={{ background:INK, color:Y }}>
+                  {["ID","LABEL","ICON","TYPE","ORDER",""].map(h=>(
+                    <th key={h} style={{ padding:"8px 12px", textAlign:"left", fontSize:"8px", letterSpacing:"2px", fontWeight:"normal" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map((cat,i)=>(
+                  <tr key={cat.id} style={{ background:i%2===0?"white":"rgba(240,216,0,0.06)", borderBottom:"1px solid rgba(26,16,6,0.08)" }}>
+                    <td style={{ padding:"7px 12px", color:MID, fontWeight:"bold" }}>{cat.id}</td>
+                    <td style={{ padding:"7px 12px", color:INK }}>{cat.label}</td>
+                    <td style={{ padding:"7px 12px", fontSize:"16px" }}>{cat.icon}</td>
+                    <td style={{ padding:"7px 12px", color:MID }}>{cat.type}</td>
+                    <td style={{ padding:"7px 12px", color:MID }}>{cat.sort_order}</td>
+                    <td style={{ padding:"7px 12px", display:"flex", gap:"6px" }}>
+                      <button onClick={()=>setEditCat({...cat})} style={{ ...BTN(), padding:"3px 8px", fontSize:"8px" }}>EDIT</button>
+                      <button onClick={()=>deleteCat(cat.id)} style={{ ...BTN(), padding:"3px 8px", fontSize:"8px", color:"#c0392b", border:"1.5px solid #c0392b" }}>DELETE</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT / NEW MODAL ────────────────────────────────────────────────── */}
       {editing && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(26,16,6,0.75)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={e => e.target===e.currentTarget && setEditing(null)}>
-          <div style={{ background: "white", border: `2px solid ${INK}`, width: "100%", maxWidth: "560px", maxHeight: "90vh", overflowY: "auto", padding: "24px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-              <h3 style={{ fontFamily: "'Georgia',serif", fontSize: "18px", fontWeight: 900, color: INK, margin: 0 }}>Edit Listing</h3>
-              <button onClick={() => setEditing(null)} style={{ border: "none", background: "transparent", fontSize: "18px", cursor: "pointer", color: INK }}>×</button>
+        <div style={{ position:"fixed", inset:0, background:"rgba(26,16,6,0.75)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }} onClick={e=>e.target===e.currentTarget&&setEditing(null)}>
+          <div style={{ background:"white", border:`2px solid ${INK}`, width:"100%", maxWidth:"600px", maxHeight:"90vh", overflowY:"auto", padding:"24px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px" }}>
+              <h3 style={{ fontFamily:"'Georgia',serif", fontSize:"18px", fontWeight:900, color:INK, margin:0 }}>{isNew?"New Listing":"Edit Listing"}</h3>
+              <div style={{ display:"flex", gap:"8px", alignItems:"center" }}>
+                {!isNew && <button onClick={()=>deleteOne(editing.id)} style={{ ...BTN(), color:"#c0392b", border:"1.5px solid #c0392b", fontSize:"8px" }}>DELETE</button>}
+                <button onClick={()=>setEditing(null)} style={{ border:"none", background:"transparent", fontSize:"20px", cursor:"pointer", color:INK, lineHeight:1 }}>×</button>
+              </div>
             </div>
-            <div style={{ display: "grid", gap: "12px" }}>
-              <FR label="NAME"><input value={editing.name} onChange={e => setEditing(p=>({...p,name:e.target.value}))} style={INP_S} /></FR>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div style={{ display:"grid", gap:"12px" }}>
+              <FR label="NAME"><input value={editing.name} onChange={e=>setEditing(p=>({...p,name:e.target.value}))} style={INP_S} /></FR>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px" }}>
                 <FR label="CATEGORY">
-                  <select value={editing.category} onChange={e => setEditing(p=>({...p,category:e.target.value}))} style={INP_S}>
-                    {Object.entries(ADMIN_CATS).map(([id,lbl]) => <option key={id} value={id}>{lbl}</option>)}
+                  <select value={editing.category} onChange={e=>setEditing(p=>({...p,category:e.target.value}))} style={INP_S}>
+                    {Object.entries(ADMIN_CATS).map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
                   </select>
                 </FR>
                 <FR label="TYPE">
-                  <select value={editing.type} onChange={e => setEditing(p=>({...p,type:e.target.value}))} style={INP_S}>
-                    <option value="brick">Brick & Mortar</option>
+                  <select value={editing.type} onChange={e=>setEditing(p=>({...p,type:e.target.value}))} style={INP_S}>
+                    <option value="brick">Brick &amp; Mortar</option>
                     <option value="online">Online</option>
                   </select>
                 </FR>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
-                <FR label="CITY"><input value={editing.city||""} onChange={e => setEditing(p=>({...p,city:e.target.value}))} style={INP_S} /></FR>
-                <FR label="STATE"><input value={editing.state||""} onChange={e => setEditing(p=>({...p,state:e.target.value}))} style={INP_S} /></FR>
-                <FR label="COUNTRY"><input value={editing.country||""} onChange={e => setEditing(p=>({...p,country:e.target.value}))} style={INP_S} /></FR>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"10px" }}>
+                <FR label="CITY"><input value={editing.city||""} onChange={e=>setEditing(p=>({...p,city:e.target.value}))} style={INP_S} /></FR>
+                <FR label="STATE"><input value={editing.state||""} onChange={e=>setEditing(p=>({...p,state:e.target.value}))} style={INP_S} /></FR>
+                <FR label="COUNTRY"><input value={editing.country||""} onChange={e=>setEditing(p=>({...p,country:e.target.value}))} style={INP_S} /></FR>
               </div>
-              <FR label="WEBSITE"><input value={editing.website} onChange={e => setEditing(p=>({...p,website:e.target.value}))} style={INP_S} placeholder="domain.com" /></FR>
-              <FR label="INSTAGRAM"><input value={editing.instagram} onChange={e => setEditing(p=>({...p,instagram:e.target.value}))} style={INP_S} placeholder="handle (no @)" /></FR>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px" }}>
+                <FR label="WEBSITE"><input value={editing.website||""} onChange={e=>setEditing(p=>({...p,website:e.target.value}))} style={INP_S} placeholder="domain.com" /></FR>
+                <FR label="INSTAGRAM"><input value={editing.instagram||""} onChange={e=>setEditing(p=>({...p,instagram:e.target.value}))} style={INP_S} placeholder="handle (no @)" /></FR>
+              </div>
+              <FR label="ADDRESS"><input value={editing.address||""} onChange={e=>setEditing(p=>({...p,address:e.target.value}))} style={INP_S} /></FR>
+              <FR label="PHONE"><input value={editing.phone||""} onChange={e=>setEditing(p=>({...p,phone:e.target.value}))} style={INP_S} /></FR>
+              <FR label="GOOGLE MAPS URL"><input value={editing.map_url||""} onChange={e=>setEditing(p=>({...p,map_url:e.target.value}))} style={INP_S} placeholder="https://maps.google.com/..." /></FR>
               <FR label="STATUS">
-                <select value={editing.status} onChange={e => setEditing(p=>({...p,status:e.target.value}))} style={INP_S}>
+                <select value={editing.status} onChange={e=>setEditing(p=>({...p,status:e.target.value}))} style={INP_S}>
                   <option value="approved">Approved</option>
                   <option value="pending">Pending</option>
                   <option value="rejected">Rejected</option>
                 </select>
               </FR>
               <FR label="DESCRIPTION">
-                <textarea value={editing.description} onChange={e => setEditing(p=>({...p,description:e.target.value}))} style={{ ...INP_S, height: "80px", resize: "vertical" }} placeholder="1-2 sentence editorial description…" />
+                <textarea value={editing.description||""} onChange={e=>setEditing(p=>({...p,description:e.target.value}))} style={{ ...INP_S, height:"90px", resize:"vertical" }} placeholder="1-2 sentence editorial description…" />
               </FR>
-              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "4px" }}>
-                <button onClick={saveEdit} disabled={saving} style={{ border: `2px solid ${INK}`, background: INK, color: Y, padding: "12px 24px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase", opacity: saving?0.6:1 }}>
-                  {saving ? "SAVING…" : "SAVE CHANGES"}
-                </button>
-                <button onClick={() => setEditing(null)} style={{ border: `2px solid ${INK}`, background: "transparent", color: INK, padding: "12px 20px", fontFamily: "inherit", fontSize: "10px", letterSpacing: "2px", cursor: "pointer", textTransform: "uppercase" }}>CANCEL</button>
-                {saveMsg && <span style={{ fontSize: "11px", color: saveMsg.startsWith("Error") ? RED : "green", letterSpacing: "1px" }}>{saveMsg}</span>}
+              <div style={{ display:"flex", gap:"10px", alignItems:"center", marginTop:"4px" }}>
+                <button onClick={saveEdit} disabled={saving} style={{ ...BTN(INK,Y), opacity:saving?0.6:1 }}>{saving?"SAVING…":"SAVE CHANGES"}</button>
+                <button onClick={()=>setEditing(null)} style={BTN()}>CANCEL</button>
+                {saveMsg && <span style={{ fontSize:"11px", color:saveMsg.startsWith("Error")?"#c0392b":"green", letterSpacing:"1px" }}>{saveMsg}</span>}
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* ── CATEGORY EDIT MODAL ─────────────────────────────────────────────── */}
+      {editCat && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(26,16,6,0.75)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }} onClick={e=>e.target===e.currentTarget&&setEditCat(null)}>
+          <div style={{ background:"white", border:`2px solid ${INK}`, width:"100%", maxWidth:"420px", padding:"24px" }}>
+            <h3 style={{ fontFamily:"'Georgia',serif", fontSize:"16px", fontWeight:900, color:INK, margin:"0 0 16px" }}>{editCat._new?"New Category":"Edit Category"}</h3>
+            <div style={{ display:"grid", gap:"12px" }}>
+              {editCat._new && <FR label="ID (slug, e.g. 'skate')"><input value={editCat.id} onChange={e=>setEditCat(p=>({...p,id:e.target.value.toLowerCase().replace(/\s/g,"-")}))} style={INP_S} /></FR>}
+              <FR label="LABEL"><input value={editCat.label} onChange={e=>setEditCat(p=>({...p,label:e.target.value}))} style={INP_S} /></FR>
+              <FR label="ICON (emoji)"><input value={editCat.icon} onChange={e=>setEditCat(p=>({...p,icon:e.target.value}))} style={INP_S} /></FR>
+              <FR label="TYPE">
+                <select value={editCat.type} onChange={e=>setEditCat(p=>({...p,type:e.target.value}))} style={INP_S}>
+                  <option value="brick">Brick &amp; Mortar</option>
+                  <option value="online">Online</option>
+                  <option value="both">Both</option>
+                </select>
+              </FR>
+              <FR label="SORT ORDER"><input type="number" value={editCat.sort_order} onChange={e=>setEditCat(p=>({...p,sort_order:parseInt(e.target.value)||0}))} style={INP_S} /></FR>
+              <div style={{ display:"flex", gap:"10px", marginTop:"4px" }}>
+                <button onClick={saveCat} style={BTN(INK,Y)}>SAVE</button>
+                <button onClick={()=>setEditCat(null)} style={BTN()}>CANCEL</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
