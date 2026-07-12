@@ -1,19 +1,4 @@
 import { useState, useMemo, useEffect } from "react";
-import React from 'react';
-class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { error: null }; }
-  static getDerivedStateFromError(e) { return { error: e }; }
-  render() {
-    if (this.state.error) {
-      return React.createElement('div', {style:{padding:'40px',fontFamily:'Courier New',background:'#F0D800',minHeight:'100vh'}},
-        React.createElement('h2', null, 'CRASH:'),
-        React.createElement('pre', {style:{background:'white',padding:'20px',fontSize:'12px',whiteSpace:'pre-wrap'}},
-          this.state.error.toString() + '\n\n' + (this.state.error.stack||'').split('\n').slice(0,4).join('\n'))
-      );
-    }
-    return this.props.children;
-  }
-}
 import { supabase, fetchListings, signIn, signOut, getSession } from "./lib/supabase.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -4631,7 +4616,7 @@ const PER_PAGE = 20;
 // ══════════════════════════════════════════════════════════════════════════════
 // ROOT
 // ══════════════════════════════════════════════════════════════════════════════
-function AppInner() {
+export default function App() {
   const bp = useBreakpoint();
   const [listings,   setListings]   = useState(SAMPLE);
   const [loading,    setLoading]    = useState(true);
@@ -4739,7 +4724,16 @@ function AppInner() {
 
   const clearFilters = () => { setSearch(""); setActiveCat("all"); setActiveCity("all"); setActiveSt("all"); setActiveLetter("all"); };
   const toggleSave   = id => { if (!user) { setTab("account"); return; } setSaved(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]); };
-  const handleSub    = data => { setPending(p => [...p, { ...data, id: Date.now() }]); setSubOk(true); setTimeout(() => setSubOk(false), 4000); };
+  const handleSub    = async data => {
+    try {
+      await supabase.from('submissions').insert({
+        status: 'pending',
+        submitted_data: data,
+        submitter_email: data.socials?.email || ''
+      });
+    } catch(e) { console.error('submission error', e); }
+    setSubOk(true); setTimeout(() => setSubOk(false), 4000);
+  };
   const approve      = sub  => { setListings(p => [...p, sub]); setPending(p => p.filter(s => s.id !== sub.id)); };
   const reject       = id   => setPending(p => p.filter(s => s.id !== id));
   const addCat       = (cat, m) => { if (m === "brick") setBrickCats(p => p.find(c => c.id === cat.id) ? p : [...p, cat]); else setOnlineCats(p => p.find(c => c.id === cat.id) ? p : [...p, cat]); };
@@ -5300,7 +5294,14 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
     if (!f.desc.trim())    e.desc     = "Required";
     setErr(e); return !Object.keys(e).length;
   };
-  const submit = () => { if (validate()) { onSubmit({ ...f, type: formType }); setF(blank); } };
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async () => {
+    if (!validate()) return;
+    setSubmitting(true);
+    await onSubmit({ ...f, type: formType });
+    setF(blank);
+    setSubmitting(false);
+  };
 
   return (
     <div style={{ maxWidth: "680px", margin: "0 auto", padding: `28px ${px}` }}>
@@ -5364,7 +5365,7 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
           {SOCIALS.map(p => <FR key={p.id} label={p.label.toUpperCase()}><input value={f.socials[p.id] || ""} onChange={e => setSocial(p.id, e.target.value)} style={INP} placeholder="handle" /></FR>)}
         </div>
 
-        <button onClick={submit} style={{ border: `3px solid ${INK}`, background: INK, color: Y, padding: "15px", fontFamily: "inherit", fontSize: "13px", letterSpacing: "3px", cursor: "pointer", textTransform: "uppercase", marginTop: "8px", touchAction: "manipulation" }}>
+        <button onClick={submit} disabled={submitting} style={{ border: `3px solid ${INK}`, opacity: submitting ? 0.6 : 1, background: INK, color: Y, padding: "15px", fontFamily: "inherit", fontSize: "13px", letterSpacing: "3px", cursor: "pointer", textTransform: "uppercase", marginTop: "8px", touchAction: "manipulation" }}>
           SUBMIT FOR REVIEW →
         </button>
         <p style={{ fontSize: "10px", color: MID, margin: 0, letterSpacing: "1px" }}>Listings are free. We review every submission for quality before publishing.</p>
@@ -5751,8 +5752,4 @@ function AdminPanel({ bp }) {
       )}
     </div>
   );
-}
-
-export default function App() {
-  return React.createElement(ErrorBoundary, null, React.createElement(AppInner, null));
 }
