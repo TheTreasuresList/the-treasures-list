@@ -5529,6 +5529,316 @@ function AccountPanel({ bp, user, setUser, goDir }) {
   );
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// IMPORT TAB — Spreadsheet sync
+// ══════════════════════════════════════════════════════════════════════════════
+const CAT_MAP = {
+  "Skate Shops":"skate","Skateparks":"skate","Surf Shops":"surf","Surf & Skate":"surf",
+  "Tattoo Shops":"tattoo","Bars & Nightlife":"divebar","Bars":"divebar",
+  "Moto & Car":"moto","Auto":"moto","Sneaker Stores":"sneaker",
+  "Art Galleries":"gallery","Art Galleries, Small Brands":"gallery",
+  "Record Stores":"record","Venues":"venue","Book Stores":"bookstore",
+  "Diners":"diner","Restaurants":"diner","Vintage & Thrift":"vintage",
+  "Barbers":"barber","Food & Bodegas":"food","Small Brands":"brand",
+  "Furniture":"furniture","Tattooers":"tattooer","Artists":"artist",
+  "Authors":"author","Ceramics":"ceramics","Motorcycle Parts":"motoparts",
+  "Leather Goods":"leather","Photographers":"photographer","Music / Labels":"music",
+};
+
+function parseXlsxRows(buffer) {
+  // Use SheetJS (xlsx) to parse the workbook
+  const XLSX = window.XLSX;
+  if (!XLSX) throw new Error("SheetJS not loaded");
+  const wb = XLSX.read(buffer, { type: "array" });
+  const ws = wb.Sheets["LISTINGS"];
+  if (!ws) throw new Error("No LISTINGS sheet found in workbook");
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  return rows;
+}
+
+function rowToListing(row) {
+  // Column order: STATUS, SOURCE, NAME, CITY, STATE, COUNTRY, ADDRESS, PHONE,
+  // GOOGLE MAPS URL, CATEGORY, TYPE, DESCRIPTION, WEBSITE, INSTAGRAM,
+  // TIKTOK, YOUTUBE, TWITTER/X, NOTES, TAGS
+  const status = String(row[0] || "").trim();
+  if (status !== "PENDING") return null; // skip REJECTED, headers, empty
+
+  const name    = String(row[2]  || "").trim();
+  if (!name || name === "NAME Business name") return null;
+
+  const city     = String(row[3]  || "").trim();
+  const state    = String(row[4]  || "").trim();
+  const country  = String(row[5]  || "").trim();
+  const address  = String(row[6]  || "").trim();
+  const phone    = String(row[7]  || "").trim();
+  const map_url  = String(row[8]  || "").trim();
+  const catRaw   = String(row[9]  || "").trim();
+  const typeRaw  = String(row[10] || "").trim().toUpperCase();
+  const desc     = String(row[11] || "").trim();
+  const website  = String(row[12] || "").trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const instagram = String(row[13] || "").trim().replace(/^@/, "");
+  const tiktok    = String(row[14] || "").trim().replace(/^@/, "");
+  const youtube   = String(row[15] || "").trim().replace(/^@/, "");
+  const twitter   = String(row[16] || "").trim().replace(/^@/, "");
+
+  const category = CAT_MAP[catRaw] || "brand";
+  const type     = typeRaw === "ONLINE" ? "online" : "brick";
+
+  return { name, city, state, country, address, phone, map_url, category, type,
+           description: desc, website, instagram, tiktok, youtube, twitter,
+           status: "approved", source: "import" };
+}
+
+function ImportTab({ supabase, onDone }) {
+  const [file, setFile]         = useState(null);
+  const [parsing, setParsing]   = useState(false);
+  const [preview, setPreview]   = useState(null); // { toInsert, toUpdate, toSkip }
+  const [overwrite, setOverwrite] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const [error, setError]       = useState("");
+
+  const INP_S = { border:`1.5px solid rgba(26,16,6,0.3)`, background:"white", padding:"7px 10px",
+                  fontFamily:"inherit", fontSize:"11px", color:INK, outline:"none" };
+  const BTN = (bg, col) => ({ border:`2px solid ${INK}`, background:bg||"transparent", color:col||INK,
+                               padding:"8px 16px", fontFamily:"inherit", fontSize:"9px",
+                               letterSpacing:"2px", cursor:"pointer", textTransform:"uppercase" });
+
+  const handleFile = e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    setFile(f); setPreview(null); setImportMsg(""); setError("");
+  };
+
+  const parseFile = async () => {
+    if (!file) return;
+    setParsing(true); setError(""); setPreview(null);
+    try {
+      // Load SheetJS dynamically
+      if (!window.XLSX) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      const buffer = await file.arrayBuffer();
+      const rows = parseXlsxRows(buffer);
+
+      // Parse all valid rows from sheet (skip first 2 header rows)
+      const parsed = rows.slice(2).map(rowToListing).filter(Boolean);
+
+      // Dedup within spreadsheet itself (name+city)
+      const seen = new Set();
+      const unique = parsed.filter(r => {
+        const key = (r.name + "|" + r.city).toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key); return true;
+      });
+
+      // Fetch existing listings for comparison
+      const existing = [];
+      let from = 0;
+      while (true) {
+        const { data } = await supabase.from("listings")
+          .select("id,name,city,description,website,instagram,category,address,phone,state,country")
+          .range(from, from + 999);
+        if (!data?.length) break;
+        existing.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+
+      // Build lookup map: "name|city" → existing row
+      const existMap = {};
+      existing.forEach(r => {
+        const key = (r.name + "|" + (r.city||"")).toLowerCase();
+        existMap[key] = r;
+        // Also index by name alone as fallback
+        const keyName = r.name.toLowerCase();
+        if (!existMap[keyName]) existMap[keyName] = r;
+      });
+
+      const toInsert = [], toUpdate = [], toSkip = [];
+
+      for (const row of unique) {
+        const key     = (row.name + "|" + row.city).toLowerCase();
+        const keyName = row.name.toLowerCase();
+        const match   = existMap[key] || existMap[keyName];
+
+        if (!match) {
+          toInsert.push(row);
+        } else {
+          // Build update — only fill blank fields
+          const update = { id: match.id };
+          let hasChanges = false;
+          const fields = ["description","website","instagram","category","address","phone","state","country","city"];
+          for (const f of fields) {
+            const newVal = row[f] || "";
+            const oldVal = match[f] || "";
+            if (newVal && (!oldVal || (overwrite && f === "description"))) {
+              update[f] = newVal;
+              hasChanges = true;
+            }
+          }
+          if (hasChanges) toUpdate.push({ ...row, id: match.id, _update: update });
+          else toSkip.push({ ...row, _reason: "no new data" });
+        }
+      }
+
+      setPreview({ toInsert, toUpdate, toSkip, total: unique.length });
+    } catch(e) {
+      setError(e.message);
+    }
+    setParsing(false);
+  };
+
+  const runImport = async () => {
+    if (!preview) return;
+    setImporting(true); setImportMsg("");
+    let inserted = 0, updated = 0, errors = 0;
+
+    // Insert new listings in batches of 100
+    const { toInsert, toUpdate } = preview;
+    for (let i = 0; i < toInsert.length; i += 100) {
+      const batch = toInsert.slice(i, i+100).map(r => {
+        const { ...data } = r;
+        return data;
+      });
+      const { error } = await supabase.from("listings").insert(batch);
+      if (error) { console.error("Insert error:", error.message); errors += batch.length; }
+      else inserted += batch.length;
+    }
+
+    // Update existing listings one by one
+    for (const row of toUpdate) {
+      const { id, _update } = row;
+      const { id: _id, _update: _u, ..._ } = row;
+      const { error } = await supabase.from("listings").update(_update).eq("id", id);
+      if (error) { console.error("Update error:", error.message); errors++; }
+      else updated++;
+    }
+
+    setImportMsg(`✓ Done — ${inserted} inserted, ${updated} updated, ${errors} errors`);
+    setPreview(null);
+    setFile(null);
+    setImporting(false);
+    if (inserted + updated > 0) onDone();
+  };
+
+  return (
+    <div>
+      <h3 style={{ fontFamily:"'Georgia',serif", fontSize:"16px", fontWeight:900, color:INK, margin:"0 0 6px" }}>Import from Spreadsheet</h3>
+      <p style={{ fontSize:"11px", color:MID, lineHeight:1.6, margin:"0 0 20px" }}>
+        Upload your master .xlsx file. New listings are inserted, existing ones get blank fields filled in. REJECTED rows are always skipped.
+      </p>
+
+      {/* File picker */}
+      <div style={{ display:"flex", gap:"10px", alignItems:"center", marginBottom:"14px", flexWrap:"wrap" }}>
+        <input type="file" accept=".xlsx,.xls" onChange={handleFile}
+          style={{ border:`1.5px solid rgba(26,16,6,0.3)`, padding:"7px 10px", fontFamily:"inherit", fontSize:"11px", background:"white" }} />
+        {file && (
+          <button onClick={parseFile} disabled={parsing} style={BTN(INK,Y)}>
+            {parsing ? "ANALYSING…" : "ANALYSE FILE"}
+          </button>
+        )}
+      </div>
+
+      {/* Overwrite option */}
+      <label style={{ display:"flex", alignItems:"center", gap:"8px", fontSize:"11px", color:INK, marginBottom:"20px", cursor:"pointer" }}>
+        <input type="checkbox" checked={overwrite} onChange={e=>setOverwrite(e.target.checked)} />
+        Force overwrite existing descriptions (uncheck = only fill blanks)
+      </label>
+
+      {error && <div style={{ border:"1.5px solid #c0392b", padding:"12px", fontSize:"11px", color:"#c0392b", marginBottom:"14px" }}>{error}</div>}
+      {importMsg && <div style={{ border:"1.5px solid green", padding:"12px", fontSize:"11px", color:"green", marginBottom:"14px" }}>{importMsg}</div>}
+
+      {/* Preview */}
+      {preview && (
+        <div>
+          {/* Summary */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"10px", marginBottom:"20px" }}>
+            {[
+              { label:"NEW TO INSERT", count:preview.toInsert.length, color:"green" },
+              { label:"TO UPDATE",     count:preview.toUpdate.length, color:"#e67e22" },
+              { label:"NO CHANGE",     count:preview.toSkip.length,   color:MID },
+            ].map(s=>(
+              <div key={s.label} style={{ border:`2px solid ${s.color}`, padding:"14px", textAlign:"center" }}>
+                <div style={{ fontSize:"28px", fontWeight:900, color:s.color, fontFamily:"'Georgia',serif" }}>{s.count}</div>
+                <div style={{ fontSize:"8px", letterSpacing:"2px", color:s.color, marginTop:"4px" }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* New listings preview */}
+          {preview.toInsert.length > 0 && (
+            <div style={{ marginBottom:"16px" }}>
+              <div style={{ fontSize:"9px", letterSpacing:"2px", color:INK, marginBottom:"8px", fontWeight:"bold" }}>NEW LISTINGS (first 10 shown)</div>
+              <div style={{ border:`1px solid rgba(26,16,6,0.15)`, overflowX:"auto" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"10px" }}>
+                  <thead><tr style={{ background:INK, color:Y }}>
+                    {["Name","Category","City","Type"].map(h=><th key={h} style={{ padding:"6px 10px", textAlign:"left", fontSize:"8px", letterSpacing:"1px", fontWeight:"normal" }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {preview.toInsert.slice(0,10).map((r,i)=>(
+                      <tr key={i} style={{ borderBottom:"1px solid rgba(26,16,6,0.08)", background:i%2===0?"white":"rgba(240,216,0,0.06)" }}>
+                        <td style={{ padding:"6px 10px", fontWeight:"bold", color:INK }}>{r.name}</td>
+                        <td style={{ padding:"6px 10px", color:MID }}>{r.category}</td>
+                        <td style={{ padding:"6px 10px", color:MID }}>{r.city}</td>
+                        <td style={{ padding:"6px 10px", color:MID }}>{r.type}</td>
+                      </tr>
+                    ))}
+                    {preview.toInsert.length > 10 && (
+                      <tr><td colSpan={4} style={{ padding:"8px 10px", color:MID, fontSize:"9px", fontStyle:"italic" }}>…and {preview.toInsert.length-10} more</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Updates preview */}
+          {preview.toUpdate.length > 0 && (
+            <div style={{ marginBottom:"16px" }}>
+              <div style={{ fontSize:"9px", letterSpacing:"2px", color:INK, marginBottom:"8px", fontWeight:"bold" }}>UPDATES (first 10 shown)</div>
+              <div style={{ border:`1px solid rgba(26,16,6,0.15)`, overflowX:"auto" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"10px" }}>
+                  <thead><tr style={{ background:INK, color:Y }}>
+                    {["Name","Fields being updated"].map(h=><th key={h} style={{ padding:"6px 10px", textAlign:"left", fontSize:"8px", letterSpacing:"1px", fontWeight:"normal" }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {preview.toUpdate.slice(0,10).map((r,i)=>(
+                      <tr key={i} style={{ borderBottom:"1px solid rgba(26,16,6,0.08)", background:i%2===0?"white":"rgba(240,216,0,0.06)" }}>
+                        <td style={{ padding:"6px 10px", fontWeight:"bold", color:INK }}>{r.name}</td>
+                        <td style={{ padding:"6px 10px", color:"#e67e22" }}>{Object.keys(r._update).filter(k=>k!=="id").join(", ")}</td>
+                      </tr>
+                    ))}
+                    {preview.toUpdate.length > 10 && (
+                      <tr><td colSpan={2} style={{ padding:"8px 10px", color:MID, fontSize:"9px", fontStyle:"italic" }}>…and {preview.toUpdate.length-10} more</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Confirm button */}
+          <div style={{ display:"flex", gap:"10px", alignItems:"center", marginTop:"16px" }}>
+            <button onClick={runImport} disabled={importing||(preview.toInsert.length===0&&preview.toUpdate.length===0)}
+              style={{ ...BTN(INK,Y), opacity:(importing||(preview.toInsert.length===0&&preview.toUpdate.length===0))?0.5:1 }}>
+              {importing ? "IMPORTING…" : `CONFIRM — INSERT ${preview.toInsert.length}, UPDATE ${preview.toUpdate.length}`}
+            </button>
+            <button onClick={()=>setPreview(null)} style={BTN()}>CANCEL</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ADMIN PANEL — Full CMS
 // ══════════════════════════════════════════════════════════════════════════════
@@ -5773,6 +6083,7 @@ function AdminPanel({ bp }) {
           {TAB("listings", `Listings (${rows.length})`)}
           {TAB("submissions", `Submissions (${submissions.length})`)}
           {TAB("categories", `Categories`)}
+          {TAB("import", `Import`)}
         </div>
       </div>
 
@@ -5950,6 +6261,12 @@ function AdminPanel({ bp }) {
             </table>
           </div>
         </div>
+      )}
+
+
+      {/* ── IMPORT TAB ──────────────────────────────────────────────────────── */}
+      {adminTab === "import" && (
+        <ImportTab supabase={supabase} onDone={load} />
       )}
 
       {/* ── EDIT / NEW MODAL ────────────────────────────────────────────────── */}
