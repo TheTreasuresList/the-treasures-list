@@ -5356,6 +5356,16 @@ function SubmitForm({ bp, brickCats, onlineCats, onSubmit, ok }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ACCOUNT PANEL
 // ══════════════════════════════════════════════════════════════════════════════
+function FR({ label, children, err }) {
+  return (
+    <div>
+      <div style={{ fontSize: "9px", letterSpacing: "2px", textTransform: "uppercase", color: MID, marginBottom: "5px" }}>{label}</div>
+      {children}
+      {err && <div style={{ fontSize: "10px", color: RED, marginTop: "3px" }}>↑ {err}</div>}
+    </div>
+  );
+}
+
 function AccountPanel({ bp, user, setUser, goDir }) {
   const [f, setF] = useState({ email: "", password: "" });
   const [err, setErr] = useState("");
