@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 
 // ─── PLACES AUTOFILL ────────────────────────────────────────────────────────
 async function fetchPlaceData(mapsUrl) {
@@ -149,6 +149,103 @@ const SOCIALS = [
   { id: "facebook",  label: "Facebook",  prefix: "https://facebook.com/"  },
   { id: "threads",   label: "Threads",   prefix: "https://threads.net/@"  },
 ];
+
+// ─── GEO DEFAULT VIEW ─────────────────────────────────────────────────────────
+// On first visit, we default the view to the visitor's own state (US) or
+// country (elsewhere) so a huge, densely-listed state/country doesn't drown
+// out everything else. If that pool is too thin, we widen it — bordering
+// states first, then the whole country — before ever showing "everything".
+const GEO_MIN_RESULTS = 30;
+
+const US_STATE_NAMES = {
+  AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",
+  CT:"Connecticut",DE:"Delaware",DC:"District of Columbia",FL:"Florida",GA:"Georgia",
+  HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",
+  LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",
+  MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",
+  NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",
+  OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",
+  SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",
+  WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",
+};
+
+// Bordering states, used to widen the pool tier by tier. AK/HI have no land
+// neighbors, so they fall straight through to the all-USA tier if too thin.
+const US_STATE_ADJACENCY = {
+  AL:["FL","GA","MS","TN"], AK:[], AZ:["CA","CO","NM","NV","UT"],
+  AR:["LA","MO","MS","OK","TN","TX"], CA:["AZ","NV","OR"],
+  CO:["AZ","KS","NE","NM","OK","UT","WY"], CT:["MA","NY","RI"], DE:["MD","NJ","PA"],
+  DC:["MD","VA"], FL:["AL","GA"], GA:["AL","FL","NC","SC","TN"], HI:[],
+  ID:["MT","NV","OR","UT","WA","WY"], IL:["IN","IA","KY","MO","WI"],
+  IN:["IL","KY","MI","OH"], IA:["IL","MN","MO","NE","SD","WI"],
+  KS:["CO","MO","NE","OK"], KY:["IL","IN","MO","OH","TN","VA","WV"],
+  LA:["AR","MS","TX"], ME:["NH"], MD:["DE","PA","VA","WV","DC"],
+  MA:["CT","NH","NY","RI","VT"], MI:["IN","OH","WI"], MN:["IA","ND","SD","WI"],
+  MS:["AL","AR","LA","TN"], MO:["AR","IL","IA","KS","KY","NE","OK","TN"],
+  MT:["ID","ND","SD","WY"], NE:["CO","IA","KS","MO","SD","WY"],
+  NV:["AZ","CA","ID","OR","UT"], NH:["ME","MA","VT"], NJ:["DE","NY","PA"],
+  NM:["AZ","CO","OK","TX","UT"], NY:["CT","MA","NJ","PA","VT"],
+  NC:["GA","SC","TN","VA"], ND:["MN","MT","SD"], OH:["IN","KY","MI","PA","WV"],
+  OK:["AR","CO","KS","MO","NM","TX"], OR:["CA","ID","NV","WA"],
+  PA:["DE","MD","NJ","NY","OH","WV"], RI:["CT","MA"], SC:["GA","NC"],
+  SD:["IA","MN","MT","ND","NE","WY"], TN:["AL","AR","GA","KY","MO","MS","NC","VA"],
+  TX:["AR","LA","NM","OK"], UT:["AZ","CO","ID","NV","NM","WY"], VT:["MA","NH","NY"],
+  VA:["KY","MD","NC","TN","WV","DC"], WA:["ID","OR"], WV:["KY","MD","OH","PA","VA"],
+  WI:["IL","IA","MI","MN"], WY:["CO","ID","MT","NE","SD","UT"],
+};
+
+// ISO country code -> the country string used in this dataset. Unmapped codes
+// simply won't match anything, which safely falls through to "no default".
+const COUNTRY_CODE_MAP = {
+  US:"USA", GB:"UK", JP:"Japan", CA:"Canada", MX:"Mexico", KR:"South Korea",
+  FR:"France", AU:"Australia", DE:"Germany", CN:"China", ES:"Spain", IT:"Italy",
+  TW:"Taiwan", NL:"Netherlands", AT:"Austria", BE:"Belgium", DK:"Denmark",
+  TH:"Thailand", SE:"Sweden", HK:"Hong Kong", BR:"Brazil", SG:"Singapore",
+  PL:"Poland", NZ:"New Zealand", PH:"Philippines", CH:"Switzerland",
+  ZA:"South Africa", PT:"Portugal", NO:"Norway", GR:"Greece", AE:"UAE",
+  MY:"Malaysia", FI:"Finland", IE:"Ireland", ID:"Indonesia", PE:"Peru",
+  LV:"Latvia", HR:"Croatia", CO:"Colombia", SI:"Slovenia", SK:"Slovakia",
+  RU:"Russia", MO:"Macau", IL:"Israel", HU:"Hungary", GT:"Guatemala",
+  GU:"Guam", SV:"El Salvador", CZ:"Czech Republic", BN:"Brunei",
+};
+
+function matchesUSState(b, code) {
+  if (!b.state) return false;
+  const s = b.state.trim().toUpperCase();
+  if (s === code.toUpperCase()) return true;
+  const full = US_STATE_NAMES[code];
+  return full ? s === full.toUpperCase() : false;
+}
+
+function countForStates(codes, modeData) {
+  return modeData.filter(b => codes.some(c => matchesUSState(b, c))).length;
+}
+
+// BFS outward from the visitor's state through bordering states until we
+// clear GEO_MIN_RESULTS listings, or fall back to all-USA if we run out of
+// neighbors first (also covers AK/HI, which have none).
+function expandStatePool(code, modeData, minResults = GEO_MIN_RESULTS) {
+  let seen = new Set([code]);
+  let frontier = [code];
+  let count = countForStates([...seen], modeData);
+  while (count < minResults) {
+    const next = new Set();
+    frontier.forEach(c => (US_STATE_ADJACENCY[c] || []).forEach(n => { if (!seen.has(n)) next.add(n); }));
+    if (next.size === 0) break;
+    next.forEach(n => seen.add(n));
+    frontier = [...next];
+    count = countForStates([...seen], modeData);
+  }
+  if (count < minResults) {
+    return { type: "country", value: "USA" };
+  }
+  return { type: "states", values: [...seen] };
+}
+
+function readCookie(name) {
+  const match = document.cookie.split("; ").find(row => row.startsWith(name + "="));
+  return match ? decodeURIComponent(match.split("=")[1]) : "";
+}
 
 // ─── SAMPLE DATA ──────────────────────────────────────────────────────────────
 const SAMPLE = [
@@ -4637,6 +4734,11 @@ export default function App() {
   const [search,     setSearch]     = useState("");
   const [activeCity, setActiveCity] = useState("all");
   const [activeSt,   setActiveSt]   = useState("all");
+  const [activeCountry, setActiveCountry] = useState("all");
+  const [geoPool,      setGeoPool]      = useState(null);   // { type: "states", values: [...] } | { type: "country", value: "..." } | null
+  const [geoLabel,     setGeoLabel]     = useState("");
+  const [geoDismissed, setGeoDismissed] = useState(false);
+  const geoFirstRender = useRef(true);
   const [showFilt,   setShowFilt]   = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page,       setPage]       = useState(1);
@@ -4651,7 +4753,41 @@ export default function App() {
   const [brickCats,  setBrickCats]  = useState(BRICK_CATS);
   const [onlineCats, setOnlineCats] = useState(ONLINE_CATS);
 
-  useEffect(() => { setActiveCat("all"); setActiveCity("all"); setActiveSt("all"); setActiveLetter("all"); setPage(1); }, [mode]);
+  useEffect(() => { setActiveCat("all"); setActiveCity("all"); setActiveSt("all"); setActiveCountry("all"); setActiveLetter("all"); setPage(1); }, [mode]);
+
+  // Compute the geo default view once listings are loaded — brick & mortar only,
+  // since online creators' locations are optional/sparse.
+  useEffect(() => {
+    if (loading || mode !== "brick" || geoDismissed || geoPool) return;
+    const modeDataNow = listings.filter(b => b.type === "brick");
+    if (modeDataNow.length === 0) return;
+    const countryCode = readCookie("tl_geo_country");
+    const region      = readCookie("tl_geo_region");
+    if (!countryCode) return;
+
+    if (countryCode === "US" && region) {
+      const pool = expandStatePool(region, modeDataNow);
+      if (pool.type === "states") {
+        setGeoPool(pool);
+        setGeoLabel(pool.values.length === 1 ? (US_STATE_NAMES[region] || region) : `${US_STATE_NAMES[region] || region} + nearby`);
+      } else {
+        const count = modeDataNow.filter(b => b.country === "USA").length;
+        if (count > 0) { setGeoPool(pool); setGeoLabel("USA"); }
+      }
+    } else {
+      const countryName = COUNTRY_CODE_MAP[countryCode];
+      if (!countryName) return;
+      const count = modeDataNow.filter(b => b.country === countryName).length;
+      if (count > 0) { setGeoPool({ type: "country", value: countryName }); setGeoLabel(countryName); }
+    }
+  }, [loading, mode, geoDismissed, geoPool, listings]);
+
+  // Once someone actually touches a filter, search box, or letter strip,
+  // the geo default steps aside for the rest of the session.
+  useEffect(() => {
+    if (geoFirstRender.current) { geoFirstRender.current = false; return; }
+    setGeoDismissed(true);
+  }, [search, activeCat, activeCity, activeSt, activeCountry, activeLetter]);
 
   // Fetch live data from Supabase on mount — falls back to SAMPLE if unavailable
   useEffect(() => {
@@ -4669,7 +4805,7 @@ export default function App() {
       }
     });
   }, []);
-  useEffect(() => { setPage(1); }, [search, activeCat, activeCity, activeSt, perPage, activeLetter]);
+  useEffect(() => { setPage(1); }, [search, activeCat, activeCity, activeSt, activeCountry, perPage, activeLetter]);
   useEffect(() => {
     const fn = e => { if (e.key === "Escape") setModal(null); };
     window.addEventListener("keydown", fn);
@@ -4681,21 +4817,35 @@ export default function App() {
   const modeData   = useMemo(() => listings.filter(b => b.type === mode), [listings, mode]);
   const cities     = useMemo(() => [...new Set(modeData.map(b => b.city).filter(Boolean))].sort(), [modeData]);
   const states     = useMemo(() => [...new Set(modeData.map(b => b.state).filter(Boolean))].sort(), [modeData]);
+  const countries  = useMemo(() => [...new Set(modeData.map(b => b.country).filter(Boolean))].sort(), [modeData]);
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return modeData.filter(b =>
-      (!q || [b.name, b.city, b.desc, b.category].some(f => f?.toLowerCase().includes(q))) &&
-      (activeCat    === "all" || b.category === activeCat)  &&
-      (activeCity   === "all" || b.city     === activeCity)  &&
-      (activeSt     === "all" || b.state    === activeSt)    &&
-      (activeLetter === "all" || b.name.trim().toUpperCase().startsWith(activeLetter))
-    ).sort((a, b) => a.name.localeCompare(b.name));
-  }, [modeData, search, activeCat, activeCity, activeSt, activeLetter]);
+    const q = search.trim().toLowerCase();
+    return modeData.filter(b => {
+      if (q) {
+        const catLabel = allCats.find(c => c.id === b.category)?.label || "";
+        const haystack = [
+          b.name, b.city, b.state, b.country, b.address, b.desc, catLabel, b.website,
+          ...Object.values(b.socials || {})
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      if (activeCat     !== "all" && b.category !== activeCat)     return false;
+      if (activeCity    !== "all" && b.city     !== activeCity)    return false;
+      if (activeSt      !== "all" && b.state    !== activeSt)      return false;
+      if (activeCountry !== "all" && b.country  !== activeCountry) return false;
+      if (activeLetter  !== "all" && !b.name.trim().toUpperCase().startsWith(activeLetter)) return false;
+      if (geoPool && !geoDismissed) {
+        if (geoPool.type === "states"  && !geoPool.values.some(c => matchesUSState(b, c))) return false;
+        if (geoPool.type === "country" && b.country !== geoPool.value) return false;
+      }
+      return true;
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [modeData, search, activeCat, activeCity, activeSt, activeCountry, activeLetter, allCats, geoPool, geoDismissed]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
   const paged      = filtered.slice((page - 1) * perPage, page * perPage);
-  const hasFilters = search || activeCat !== "all" || activeCity !== "all" || activeSt !== "all";
+  const hasFilters = search || activeCat !== "all" || activeCity !== "all" || activeSt !== "all" || activeCountry !== "all";
 
   // SEO — update meta tags as filters change
   const catObj = activeCats.find(c => c.id === activeCat);
@@ -4734,7 +4884,7 @@ export default function App() {
     injectSchema(schema);
   }, [filtered]);
 
-  const clearFilters = () => { setSearch(""); setActiveCat("all"); setActiveCity("all"); setActiveSt("all"); setActiveLetter("all"); };
+  const clearFilters = () => { setSearch(""); setActiveCat("all"); setActiveCity("all"); setActiveSt("all"); setActiveCountry("all"); setActiveLetter("all"); setGeoDismissed(true); };
   const toggleSave   = id => { if (!user) { setTab("account"); return; } setSaved(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]); };
   const handleSub    = async data => {
     try {
@@ -4778,11 +4928,19 @@ export default function App() {
           hasFilters={hasFilters} clearFilters={clearFilters}
           activeCity={activeCity} setActiveCity={setActiveCity}
           activeSt={activeSt} setActiveSt={setActiveSt}
-          cities={cities} states={states}
+          activeCountry={activeCountry} setActiveCountry={setActiveCountry}
+          cities={cities} states={states} countries={countries}
           perPage={perPage} setPerPage={setPerPage}
           activeLetter={activeLetter} setActiveLetter={setActiveLetter}
           filtered={filtered}
         />
+      )}
+
+      {showSearch && geoPool && !geoDismissed && (
+        <div style={{ background: Y3, borderBottom: `1px solid rgba(26,16,6,0.2)`, padding: bp.isMobile ? "8px 12px" : "8px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", fontSize: bp.isMobile ? "10px" : "11px", letterSpacing: "0.5px" }}>
+          <span>📍 Showing listings near you — <strong>{geoLabel}</strong></span>
+          <button onClick={() => setGeoDismissed(true)} style={{ border: `1.5px solid ${INK}`, background: "transparent", color: INK, padding: "4px 10px", fontFamily: "inherit", fontSize: bp.isMobile ? "9px" : "10px", letterSpacing: "1px", cursor: "pointer", textTransform: "uppercase", flexShrink: 0 }}>See All ✕</button>
+        </div>
       )}
 
       <main style={{ paddingBottom: bp.isMobile ? "80px" : "0" }}>
@@ -4818,7 +4976,8 @@ export default function App() {
           activeCat={activeCat} setActiveCat={setActiveCat} activeCats={activeCats}
           activeCity={activeCity} setActiveCity={setActiveCity}
           activeSt={activeSt} setActiveSt={setActiveSt}
-          cities={cities} states={states}
+          activeCountry={activeCountry} setActiveCountry={setActiveCountry}
+          cities={cities} states={states} countries={countries}
           hasFilters={hasFilters} clearFilters={clearFilters} mode={mode} />
       )}
     </div>
@@ -4869,7 +5028,7 @@ function Header({ bp, tab, setTab, user, saved, pending }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // FILTER BAR
 // ══════════════════════════════════════════════════════════════════════════════
-function FilterBar({ bp, mode, setMode, search, setSearch, activeCat, setActiveCat, activeCats, showFilt, setShowFilt, filterOpen, setFilterOpen, hasFilters, clearFilters, activeCity, setActiveCity, activeSt, setActiveSt, cities, states, perPage, setPerPage, activeLetter, setActiveLetter, filtered }) {
+function FilterBar({ bp, mode, setMode, search, setSearch, activeCat, setActiveCat, activeCats, showFilt, setShowFilt, filterOpen, setFilterOpen, hasFilters, clearFilters, activeCity, setActiveCity, activeSt, setActiveSt, activeCountry, setActiveCountry, cities, states, countries, perPage, setPerPage, activeLetter, setActiveLetter, filtered }) {
   const px = bp.isMobile ? "12px" : "40px";
   return (
     <div style={{ background: Y, borderBottom: `2px solid ${INK}`, position: "sticky", top: bp.isMobile ? "52px" : "71px", zIndex: 150 }}>
@@ -4904,8 +5063,9 @@ function FilterBar({ bp, mode, setMode, search, setSearch, activeCat, setActiveC
       {/* Desktop location filters */}
       {!bp.isMobile && showFilt && (
         <div style={{ padding: "10px 40px", display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "flex-end", background: Y3, borderBottom: `1px solid rgba(26,16,6,0.2)` }}>
-          <FS label="CITY"         val={activeCity} set={setActiveCity} opts={cities}  links={CITY_MAPS} />
-          <FS label="STATE/REGION" val={activeSt}   set={setActiveSt}   opts={states} links={STATE_MAPS} />
+          <FS label="CITY"         val={activeCity}    set={setActiveCity}    opts={cities}    links={CITY_MAPS} />
+          <FS label="STATE/REGION" val={activeSt}      set={setActiveSt}      opts={states}    links={STATE_MAPS} />
+          <FS label="COUNTRY"      val={activeCountry} set={setActiveCountry} opts={countries} />
           {mode === "online" && (
             <div style={{ fontSize: "10px", color: MID, letterSpacing: "1px", alignSelf: "center", paddingTop: "14px", fontStyle: "italic" }}>
               Location optional for online creators — filters to those with a known base
@@ -4941,7 +5101,7 @@ function FilterBar({ bp, mode, setMode, search, setSearch, activeCat, setActiveC
 // ══════════════════════════════════════════════════════════════════════════════
 // MOBILE FILTER DRAWER
 // ══════════════════════════════════════════════════════════════════════════════
-function FilterDrawer({ onClose, activeCat, setActiveCat, activeCats, activeCity, setActiveCity, activeSt, setActiveSt, cities, states, hasFilters, clearFilters, mode }) {
+function FilterDrawer({ onClose, activeCat, setActiveCat, activeCats, activeCity, setActiveCity, activeSt, setActiveSt, activeCountry, setActiveCountry, cities, states, countries, hasFilters, clearFilters, mode }) {
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(26,16,6,0.6)", zIndex: 300 }} />
@@ -4969,9 +5129,14 @@ function FilterDrawer({ onClose, activeCat, setActiveCat, activeCats, activeCity
               {cities.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <Label>State / Region</Label>
-            <select value={activeSt} onChange={e => setActiveSt(e.target.value)} style={{ width: "100%", border: `2px solid ${INK}`, background: WH, padding: "10px 12px", fontFamily: "inherit", fontSize: "13px", outline: "none", color: INK, marginBottom: "20px" }}>
+            <select value={activeSt} onChange={e => setActiveSt(e.target.value)} style={{ width: "100%", border: `2px solid ${INK}`, background: WH, padding: "10px 12px", fontFamily: "inherit", fontSize: "13px", outline: "none", color: INK, marginBottom: "16px" }}>
               <option value="all">All States / Regions</option>
               {states.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <Label>Country</Label>
+            <select value={activeCountry} onChange={e => setActiveCountry(e.target.value)} style={{ width: "100%", border: `2px solid ${INK}`, background: WH, padding: "10px 12px", fontFamily: "inherit", fontSize: "13px", outline: "none", color: INK, marginBottom: "20px" }}>
+              <option value="all">All Countries</option>
+              {countries.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             {mode === "online" && (
               <div style={{ fontSize: "10px", color: MID, letterSpacing: "1px", marginTop: "-14px", marginBottom: "16px", fontStyle: "italic" }}>
