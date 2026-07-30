@@ -1,5 +1,8 @@
 import { geolocation } from '@vercel/functions';
 
+// Redeploy trigger: SITE_PASSWORD env var added 2026-07-30, this deployment
+// picks it up.
+
 // Gate the entire site (including /api) behind a password while it's not
 // ready to be fully public. Static asset files are excluded since they're
 // meaningless without the page anyway, but every route/page/API is covered.
