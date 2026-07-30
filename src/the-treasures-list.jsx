@@ -209,6 +209,12 @@ const COUNTRY_CODE_MAP = {
   GU:"Guam", SV:"El Salvador", CZ:"Czech Republic", BN:"Brunei",
 };
 
+// Reverse lookup so search matches regardless of which form (code or full
+// name) happens to be stored in a given row's state field.
+const US_STATE_ABBR_BY_NAME = Object.fromEntries(
+  Object.entries(US_STATE_NAMES).map(([code, name]) => [name.toUpperCase(), code])
+);
+
 function matchesUSState(b, code) {
   if (!b.state) return false;
   const s = b.state.trim().toUpperCase();
@@ -4815,17 +4821,24 @@ export default function App() {
   const allCats    = useMemo(() => [...brickCats, ...onlineCats], [brickCats, onlineCats]);
   const activeCats = mode === "brick" ? brickCats : onlineCats;
   const modeData   = useMemo(() => listings.filter(b => b.type === mode), [listings, mode]);
-  const cities     = useMemo(() => [...new Set(modeData.map(b => b.city).filter(Boolean))].sort(), [modeData]);
-  const states     = useMemo(() => [...new Set(modeData.map(b => b.state).filter(Boolean))].sort(), [modeData]);
+  const countryData = useMemo(() => activeCountry === "all" ? modeData : modeData.filter(b => b.country === activeCountry), [modeData, activeCountry]);
+  const cities     = useMemo(() => [...new Set(countryData.map(b => b.city).filter(Boolean))].sort(), [countryData]);
+  const states     = useMemo(() => [...new Set(countryData.map(b => b.state).filter(Boolean))].sort(), [countryData]);
   const countries  = useMemo(() => [...new Set(modeData.map(b => b.country).filter(Boolean))].sort(), [modeData]);
+
+  // City/State option lists change with Country — clear stale selections so
+  // the dropdowns never show a value that's no longer a valid option.
+  useEffect(() => { setActiveCity("all"); setActiveSt("all"); }, [activeCountry]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return modeData.filter(b => {
       if (q) {
         const catLabel = allCats.find(c => c.id === b.category)?.label || "";
+        const stateKey = (b.state || "").trim().toUpperCase();
+        const stateAlt = US_STATE_NAMES[stateKey] || US_STATE_ABBR_BY_NAME[stateKey] || "";
         const haystack = [
-          b.name, b.city, b.state, b.country, b.address, b.desc, catLabel, b.website,
+          b.name, b.city, b.state, stateAlt, b.country, b.address, b.desc, catLabel, b.website,
           ...Object.values(b.socials || {})
         ].filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(q)) return false;
