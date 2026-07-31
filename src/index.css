@@ -1,0 +1,15 @@
+/* Ensures the page background is yellow everywhere — including the area
+   revealed by elastic overscroll/bounce on mobile browsers, which sits
+   behind the app's own content box and was defaulting to white. */
+html, body {
+  background-color: #F0D800;
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+#root {
+  background-color: #F0D800;
+  min-height: 100vh;
+  min-height: 100dvh; /* accounts for mobile browser chrome collapsing/expanding */
+}
