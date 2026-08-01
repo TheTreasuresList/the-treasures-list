@@ -64,6 +64,25 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Could not extract business info from this URL. Try copying the full Google Maps URL from your browser.' });
       }
 
+      // Extract coordinates so the search can be geographically biased instead
+      // of blind. Without this, a generic name (or even a distinctive one)
+      // can silently match the wrong business in an entirely different city —
+      // this was the root cause of a large batch of mislabeled listings.
+      // Prefer the precise pin (!3d<lat>!4d<lng>) over the viewport center
+      // (@<lat>,<lng>,<zoom>) when both are present.
+      let lat = null, lng = null;
+      const pinMatch = resolvedUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+      if (pinMatch) { lat = parseFloat(pinMatch[1]); lng = parseFloat(pinMatch[2]); }
+      if (lat === null) {
+        const viewportMatch = resolvedUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+),/);
+        if (viewportMatch) { lat = parseFloat(viewportMatch[1]); lng = parseFloat(viewportMatch[2]); }
+      }
+
+      const searchBody = { textQuery: searchQuery };
+      if (lat !== null && lng !== null) {
+        searchBody.locationBias = { circle: { center: { latitude: lat, longitude: lng }, radius: 5000.0 } };
+      }
+
       const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
         method: 'POST',
         headers: {
@@ -71,7 +90,7 @@ export default async function handler(req, res) {
           'X-Goog-Api-Key': API_KEY,
           'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.addressComponents,places.internationalPhoneNumber,places.websiteUri'
         },
-        body: JSON.stringify({ textQuery: searchQuery })
+        body: JSON.stringify(searchBody)
       });
 
       if (!r.ok) {
