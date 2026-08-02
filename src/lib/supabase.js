@@ -5,7 +5,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const COLS = 'id, name, type, category, city, state, country, address, phone, website, map_url, description, instagram, tiktok, youtube, twitter, featured, slug';
+const COLS = 'id, name, type, category, city, state, country, address, phone, website, map_url, description, instagram, tiktok, youtube, twitter, facebook, featured, slug';
 const PAGE_SIZE = 1000;
 
 function mapRow(r) {
@@ -27,6 +27,7 @@ function mapRow(r) {
       ...(r.tiktok    ? { tiktok:    r.tiktok    } : {}),
       ...(r.youtube   ? { youtube:   r.youtube   } : {}),
       ...(r.twitter   ? { twitter:   r.twitter   } : {}),
+      ...(r.facebook  ? { facebook:  r.facebook  } : {}),
     },
     featured: r.featured || false,
     slug:     r.slug     || '',
