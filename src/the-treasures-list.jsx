@@ -6130,7 +6130,7 @@ function AdminPanel({ bp }) {
     setSaving(true); setSaveMsg("");
     const payload = { name:editing.name, category:editing.category, type:editing.type, status:editing.status,
       city:editing.city, state:editing.state, country:editing.country, address:editing.address||"",
-      phone:editing.phone||"", website:editing.website, description:editing.description, instagram:editing.instagram, map_url:editing.map_url||"",
+      phone:editing.phone||"", website:editing.website, description:editing.description, instagram:editing.instagram, facebook:editing.facebook||"", map_url:editing.map_url||"",
       tags: editing.tags||[] };
     if (isNew) {
       const { data, error } = await supabase.from("listings").insert(payload).select().single();
@@ -6481,6 +6481,7 @@ function AdminPanel({ bp }) {
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px" }}>
                 <FR label="WEBSITE"><input value={editing.website||""} onChange={e=>setEditing(p=>({...p,website:e.target.value}))} style={INP_S} placeholder="domain.com" /></FR>
                 <FR label="INSTAGRAM"><input value={editing.instagram||""} onChange={e=>setEditing(p=>({...p,instagram:e.target.value}))} style={INP_S} placeholder="handle (no @)" /></FR>
+                <FR label="FACEBOOK"><input value={editing.facebook||""} onChange={e=>setEditing(p=>({...p,facebook:e.target.value}))} style={INP_S} placeholder="handle or page name" /></FR>
               </div>
               <FR label="ADDRESS"><input value={editing.address||""} onChange={e=>setEditing(p=>({...p,address:e.target.value}))} style={INP_S} /></FR>
               <FR label="PHONE"><input value={editing.phone||""} onChange={e=>setEditing(p=>({...p,phone:e.target.value}))} style={INP_S} /></FR>
